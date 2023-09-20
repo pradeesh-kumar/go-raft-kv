@@ -22,9 +22,10 @@ type DefaultReplicator struct {
 	heartBeatTimer          *time.Timer
 	followerAppendSuccessCh chan<- any
 	batchSize               int
-	busy                    bool
 	signalCh                chan any
 	stopCh                  chan any
+	busy                    bool
+	running                 bool
 }
 
 func newDefaultReplicator(follower *Follower, leaderState *LeaderState, followerAppendSuccessCh chan<- any) *DefaultReplicator {
@@ -62,10 +63,13 @@ func (r *DefaultReplicator) startInBackground() {
 				r.sendHeartbeat()
 			case <-r.stopCh:
 				logger.Debug("Replicator received stop signal. Terminating the replicator")
+				r.stopHeartbeat()
+				r.running = false
 				return
 			}
 		}
 	}()
+	r.scheduleHeartbeat()
 }
 
 func (r *DefaultReplicator) stop() {
@@ -81,7 +85,7 @@ func (r *DefaultReplicator) scheduleHeartbeat() {
 }
 
 func (r *DefaultReplicator) scheduleImmediateNext() {
-	r.heartBeatTimer.Reset(r.heartBeatTimeout)
+	r.heartBeatTimer.Reset(r.batchDelay)
 }
 
 func (r *DefaultReplicator) followerInfo() *Follower {
@@ -122,6 +126,9 @@ func (r *DefaultReplicator) sendHeartbeat() {
 	response, err := r.transport.SendAppendEntries(reqPayload)
 	if err != nil {
 		logger.Errorf("Failed to send append entries to the node %d", r.follower.id, err)
+		return
+	}
+	if !r.running {
 		return
 	}
 	recordsLength := len(records)
