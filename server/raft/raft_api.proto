@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package raft;
+option go_package = "github.com/pradeesh-kumar/go-raft-kv/raft";
+
+message VoteRequest {
+  uint32 term = 1;
+  string candidateId = 2;
+  uint64 lastLogIndex = 3;
+  uint32 lastLogTerm = 4;
+}
+
+message VoteResponse {
+  uint32 term = 1; // Current term, for candidate to update itself
+  bool voteGranted = 2; // true means candidate received vote
+}
+
+message AppendEntriesRequest {
+  uint32 term = 1;
+  string leaderId = 2;
+  uint64 prevLogIndex = 3;
+  uint32 prevLogTerm = 4;
+  uint64 leaderCommitIndex = 5; // Leader's commit index
+  repeated Record entries = 6; // Log entries to store (empty for hearbeat; may send more than one for efficiency)
+}
+
+message AppendEntriesResponse {
+  uint32 term = 1;
+  bool success = 2;
+}
+
+message TransferLeadershipRequest {
+}
+
+message TransferLeadershipResponse {
+  bool success = 1;
+  string leaderId = 2;
+}
+
+message TimeoutNowRequest {
+  string leaderId = 1;
+}
+
+message TimeoutNowResponse {
+  bool success = 1;
+}
+
+message AddServerRequest {
+  string serverId = 1;
+  string serverAddress = 2;
+}
+
+message AddServerResponse {
+  ResponseStatus status = 1;
+  string leaderId = 2;
+}
+
+message RemoveServerRequest {
+  string serverId = 1;
+}
+
+message RemoveServerResponse {
+  ResponseStatus status = 1;
+  string leaderId = 2;
+}
+
+message OfferResponse {
+  ResponseStatus status = 1;
+  string leaderId = 2;
+}
+
+enum ResponseStatus {
+  Success = 0;
+  NotLeader = 1;
+  Conflict = 2;
+  LeaderStepDown = 3;
+  InternalError = 4;
+}
+
+message Record {
+  uint32 term = 1;
+  bytes value = 2;
+  uint64 offset = 3;
+}
+
+enum State {
+  Follower = 0;
+  Candidate = 1;
+  Leader = 2;
+}
+
+service RaftProtocolService {
+  // Election and Log Replication
+  rpc RequestVote(VoteRequest) returns (VoteResponse) {}
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse) {}
+
+  // Leadership Transfer
+  rpc TransferLeadership(TransferLeadershipRequest) returns (TransferLeadershipResponse) {}
+  rpc TimeoutNow(TimeoutNowRequest) returns (TimeoutNowResponse) {}
+
+  // Cluster Membership Change
+  rpc AddServer(AddServerRequest) returns (AddServerResponse) {}
+  rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse) {}
+}
+
+message PersistentState {
+  uint64 CommittedIndex = 1;
+  uint64 LastAppliedIndex = 2;
+  uint32 CurrentTerm = 3;
+  string VotedFor = 4;
+}

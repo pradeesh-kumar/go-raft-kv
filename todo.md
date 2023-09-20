@@ -1,0 +1,3 @@
+* Snapshot
+* Cluster Membership change
+* 
