@@ -69,7 +69,7 @@ func (r *DefaultReplicator) startInBackground() {
 			}
 		}
 	}()
-	r.scheduleHeartbeat()
+	r.sendHeartbeat()
 }
 
 func (r *DefaultReplicator) stop() {

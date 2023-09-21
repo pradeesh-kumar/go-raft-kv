@@ -252,7 +252,9 @@ func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) 
 		}
 		logger.Infof("Committed %d entries to the state machine", len(req.Entries))
 	}
-	r.persistState()
+	if newEntriesLen > 0 {
+		r.persistState()
+	}
 	return &AppendEntriesResponse{Term: r.currentTerm, Success: true}, nil
 }
 

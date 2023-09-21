@@ -76,6 +76,17 @@ func (t *GrpcTransport) TransferLeadership(c context.Context, req *raft.Transfer
 	return dispatch[*raft.TransferLeadershipRequest, *raft.TransferLeadershipResponse](t, req)
 }
 
+func (t *GrpcTransport) TimeoutNow(c context.Context, req *raft.TimeoutNowRequest) (*raft.TimeoutNowResponse, error) {
+	return dispatch[*raft.TimeoutNowRequest, *raft.TimeoutNowResponse](t, req)
+}
+
+func (t *GrpcTransport) AddServer(c context.Context, req *raft.AddServerRequest) (*raft.AddServerResponse, error) {
+	return dispatch[*raft.AddServerRequest, *raft.AddServerResponse](t, req)
+}
+func (t *GrpcTransport) RemoveServer(c context.Context, req *raft.RemoveServerRequest) (*raft.RemoveServerResponse, error) {
+	return dispatch[*raft.RemoveServerRequest, *raft.RemoveServerResponse](t, req)
+}
+
 func (t *GrpcTransport) SendTimeoutRequest(req raft.Payload[*raft.TimeoutNowRequest]) (raft.Payload[*raft.TimeoutNowResponse], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), t.broadcastTimeout)
 	defer cancel()

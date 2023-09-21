@@ -125,6 +125,10 @@ func (s *LeaderState) handleRPC(rpc *RPC) {
 		rpc.reply.Set(s.raftServer.transferLeadership(cmd))
 	case *TimeoutNowRequest:
 		rpc.reply.Set(&TimeoutNowResponse{Success: false}, nil)
+	case *AddServerRequest:
+		// TODO implement
+	case *RemoveServerRequest:
+		// TODO implement
 	case []*OfferRequest:
 		s.offerCommand(cmd)
 	default:

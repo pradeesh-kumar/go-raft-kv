@@ -9,7 +9,6 @@ func newFollowerState(r *RaftServerImpl) RaftState {
 }
 
 func (s *FollowerState) start() {
-
 }
 
 func (*FollowerState) name() State {
@@ -30,6 +29,10 @@ func (s *FollowerState) handleRPC(rpc *RPC) {
 		rpc.reply.Set(response, nil)
 	case *TimeoutNowRequest:
 		rpc.reply.Set(s.raftServer.timeoutNow(cmd))
+	case *AddServerRequest:
+		rpc.reply.Set(&AddServerResponse{Status: ResponseStatus_NotLeader, LeaderId: string(s.raftServer.currentLeader)}, nil)
+	case *RemoveServerRequest:
+		rpc.reply.Set(&RemoveServerResponse{Status: ResponseStatus_NotLeader, LeaderId: string(s.raftServer.currentLeader)}, nil)
 	case []*OfferRequest:
 		s.offerCommand(cmd)
 	default:
