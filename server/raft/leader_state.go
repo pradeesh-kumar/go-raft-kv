@@ -2,15 +2,18 @@ package raft
 
 import (
 	"github.com/pradeesh-kumar/go-raft-kv/logger"
-	"math"
+	"sort"
+	"time"
 )
 
-const DefaultChanBuffer = 1000
+const defaultChanBuffer = 1000
+const leadershipTransferLogCatchupTimeout = time.Duration(4000) * time.Millisecond
 
 type LeaderState struct {
 	raftServer              *RaftServerImpl
 	replicators             map[ServerId]Replicator
 	pendingRequests         map[uint64]MutableFuture
+	leadershipTransferFlag  bool
 	followerAppendSuccessCh <-chan any
 	applySignalCh           chan any
 	stopChannel             chan any
@@ -21,10 +24,11 @@ func newLeaderState(r *RaftServerImpl) RaftState {
 		raftServer:      r,
 		pendingRequests: make(map[uint64]MutableFuture),
 		stopChannel:     make(chan any),
-		applySignalCh:   make(chan any, DefaultChanBuffer),
+		applySignalCh:   make(chan any, defaultChanBuffer),
 	}
-	followerAppendSuccessCh := make(chan any, DefaultChanBuffer)
+	followerAppendSuccessCh := make(chan any, defaultChanBuffer)
 	replicators := make(map[ServerId]Replicator)
+	r.raftLog.HighestOffset()
 	for serverId, serverAddress := range r.config.Nodes {
 		node := Node{serverId, serverAddress}
 		follower := &Follower{Node: node, nextIndex: r.commitIndex + 1, matchIndex: 0}
@@ -67,36 +71,92 @@ func (s *LeaderState) start() {
 	}
 }
 
-func (s *LeaderState) updateCommitIndex() {
-	var minAppendIndex uint64 = math.MaxUint64
-	for _, repl := range s.replicators {
-		minAppendIndex = uint64(math.Min(float64(minAppendIndex), float64(repl.followerInfo().matchIndex)))
+func (s *LeaderState) handleRPC(rpc *RPC) {
+	switch cmd := rpc.cmd.(type) {
+	case *VoteRequest:
+		rpc.reply.Set(s.raftServer.processVoteRequest(cmd))
+	case *AppendEntriesRequest:
+		rpc.reply.Set(s.raftServer.processAppendEntriesRequest(cmd))
+	case *TransferLeadershipRequest:
+		go rpc.reply.Set(s.transferLeadership())
+	case *TimeoutNowRequest:
+		rpc.reply.Set(&TimeoutNowResponse{Success: false}, nil)
+	case *AddServerRequest:
+		// TODO implement
+	case *RemoveServerRequest:
+		// TODO implement
+	case []*OfferRequest:
+		s.offerCommand(cmd)
+	default:
+		rpc.reply.Set(nil, ErrUnknownCommand)
 	}
-	if minAppendIndex > s.raftServer.commitIndex {
-		s.raftServer.commitIndex = minAppendIndex
+}
+
+func (s *LeaderState) transferLeadership() (*TransferLeadershipResponse, error) {
+	response := &TransferLeadershipResponse{
+		Success:  false,
+		LeaderId: string(s.raftServer.currentLeader),
+	}
+	if s.leadershipTransferFlag {
+		return response, nil
+	}
+	// Find the right candidate
+	var candidate ServerId
+	var highestIndex uint64
+	for _, replicator := range s.replicators {
+		if highestIndex < replicator.followerInfo().matchIndex {
+			candidate = replicator.followerInfo().id
+			highestIndex = replicator.followerInfo().matchIndex
+		}
+	}
+	if candidate == "" {
+		return response, nil
+	}
+	s.leadershipTransferFlag = true
+	if s.replicators[candidate].followerInfo().matchIndex < s.raftServer.raftLog.HighestOffset() {
+		// Wait for the candidate to catch up the logs
+		time.Sleep(leadershipTransferLogCatchupTimeout)
+		if s.replicators[candidate].followerInfo().matchIndex < s.raftServer.raftLog.HighestOffset() {
+			// The candidate couldn't catch up the logs on the expected duration, cancelling the leadership transfer
+			s.leadershipTransferFlag = false
+			return response, nil
+		}
+	}
+	timeoutReq := &TimeoutNowRequest{
+		LeaderId: string(s.raftServer.serverId),
+	}
+	reqPayload := NewPayload[*TimeoutNowRequest](candidate, s.raftServer.config.Nodes[candidate], timeoutReq)
+	res, err := s.raftServer.transport.SendTimeoutRequest(reqPayload)
+	if err != nil {
+		return nil, err
+	}
+	response.Success = res.Message.Success
+	if response.Success {
+		s.stepDown()
+	}
+	return response, nil
+}
+
+func (s *LeaderState) updateCommitIndex() {
+	var followersMatchIndex []uint64
+	for _, repl := range s.replicators {
+		followersMatchIndex = append(followersMatchIndex, repl.followerInfo().matchIndex)
+	}
+	sort.Slice(followersMatchIndex, func(i, j int) bool { return followersMatchIndex[i] > followersMatchIndex[j] })
+	quorumMajority := s.raftServer.getQuorumMajority()
+	majorityCommitIndex := followersMatchIndex[quorumMajority-1]
+	if majorityCommitIndex > s.raftServer.commitIndex {
+		s.raftServer.commitIndex = majorityCommitIndex
 		s.raftServer.persistState()
 		s.applySignalCh <- true
 	}
 }
 
 func (s *LeaderState) applyLogs() {
-	commitIndex := s.raftServer.commitIndex
-	lastAppliedIndex := s.raftServer.lastAppliedIndex
-	offset := lastAppliedIndex + 1
-	batchSize := int(commitIndex - offset)
-	if batchSize < 1 {
-		logger.Warn("Nothing to apply")
-		return
-	}
-	logs, err := s.raftServer.raftLog.ReadBatchSince(offset, batchSize)
+	logs, err := s.raftServer.applyLogs()
 	if err != nil {
-		logger.Errorf("Failed to retrieve the logs for apply. From index: %d, batchSize: %d", offset, batchSize, err)
-		return
+		s.replyPendingRequests(logs)
 	}
-	s.raftServer.stateMachine.Apply(logs)
-	s.raftServer.lastAppliedIndex = commitIndex
-	s.raftServer.persistState()
-	s.replyPendingRequests(logs)
 }
 
 func (s *LeaderState) replyPendingRequests(logs []*Record) {
@@ -115,31 +175,12 @@ func (s *LeaderState) replyPendingRequests(logs []*Record) {
 	logger.Infof("Replied to %d pending requests", pendingRequestCount)
 }
 
-func (s *LeaderState) handleRPC(rpc *RPC) {
-	switch cmd := rpc.cmd.(type) {
-	case *VoteRequest:
-		rpc.reply.Set(s.raftServer.processVoteRequest(cmd))
-	case *AppendEntriesRequest:
-		rpc.reply.Set(s.raftServer.processAppendEntriesRequest(cmd))
-	case *TransferLeadershipRequest:
-		rpc.reply.Set(s.raftServer.transferLeadership(cmd))
-	case *TimeoutNowRequest:
-		rpc.reply.Set(&TimeoutNowResponse{Success: false}, nil)
-	case *AddServerRequest:
-		// TODO implement
-	case *RemoveServerRequest:
-		// TODO implement
-	case []*OfferRequest:
-		s.offerCommand(cmd)
-	default:
-		rpc.reply.Set(nil, ErrUnknownCommand)
-	}
-}
-
-// Appends the logs to the local log, replicates, and commits
 func (s *LeaderState) offerCommand(requests []*OfferRequest) {
-	// TODO - Reject requests during leadership transfer
 	for _, offerReq := range requests {
+		if s.leadershipTransferFlag {
+			offerReq.reply.Set(&OfferResponse{Status: ResponseStatus_LeadershipTransferInProgress}, nil)
+			continue
+		}
 		r := &Record{
 			Term:  s.raftServer.currentTerm,
 			Value: offerReq.cmd.Bytes(),
@@ -163,6 +204,7 @@ func (s *LeaderState) stepDown() {
 	for _, pendingRequest := range s.pendingRequests {
 		pendingRequest.Set(&OfferResponse{Status: ResponseStatus_LeaderStepDown}, nil)
 	}
+	s.raftServer.scheduleElection()
 	s.raftServer.changeState(newFollowerState(s.raftServer))
 }
 

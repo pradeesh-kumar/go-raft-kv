@@ -26,8 +26,6 @@ type RaftServerImpl struct {
 	nextIndex  map[ServerId]uint64 // for each server, index of next log entry to send to that server
 	matchIndex map[ServerId]uint64 // for each server, index of highest log entry known to be replicated on server
 
-	leadershipTransferFlag bool
-
 	raftLog      RaftLog
 	transport    Transport
 	stateMachine StateMachine
@@ -35,6 +33,7 @@ type RaftServerImpl struct {
 
 	electionTimer *time.Timer
 	stopChannel   chan bool
+	applySignalCh chan any
 	rpcChan       chan *RPC
 	offerChan     chan *OfferRequest
 }
@@ -62,14 +61,9 @@ func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, s
 	}
 	raftServer.changeState(newFollowerState(raftServer))
 	raftServer.transport.RegisterMessageHandler(raftServer)
-	highestOffset, err := raftServer.raftLog.HighestOffset()
-	if err != nil {
-		logger.Fatal(err)
-	}
-	raftServer.commitIndex = highestOffset
-	logger.Debug("Commit index: ", raftServer.commitIndex)
-	if raftServer.commitIndex > 0 {
-		record, err := raftServer.raftLog.Read(raftServer.commitIndex)
+	raftServer.commitIndex = 0
+	if raftServer.raftLog.HighestOffset() > 0 {
+		record, err := raftServer.raftLog.Read(raftServer.raftLog.HighestOffset())
 		if err != nil {
 			logger.Fatal(err)
 		}
@@ -90,6 +84,8 @@ func (r *RaftServerImpl) Start() {
 			r.startElection()
 		case rpc := <-r.rpcChan:
 			r.state.handleRPC(rpc)
+		case <-r.applySignalCh:
+			r.applyLogs()
 		case cmd := <-r.offerChan:
 			batch := []*OfferRequest{cmd}
 		batchLoop:
@@ -104,6 +100,7 @@ func (r *RaftServerImpl) Start() {
 			r.state.handleRPC(&RPC{batch, nil})
 		case <-r.stopChannel:
 			logger.Info("Received stop signal. Terminating the Raft Server.")
+			r.persistState()
 			return
 		}
 	}
@@ -173,8 +170,8 @@ func (r *RaftServerImpl) startElection() {
 
 	if elected {
 		logger.Infof("Server %s won the election in the term %d", r.serverId, r.currentTerm)
-		r.changeState(newLeaderState(r))
 		r.currentLeader = r.serverId
+		r.changeState(newLeaderState(r))
 	} else {
 		logger.Infof("Quorum majority %d positive votes %d", quorumMajority, positiveVotes)
 		logger.Infof("Server %s lost the election", r.serverId)
@@ -187,6 +184,26 @@ func (r *RaftServerImpl) startElection() {
 
 func (r *RaftServerImpl) getQuorumMajority() int {
 	return (len(r.config.Nodes) + 1) / 2
+}
+
+func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
+	commitIndex := r.commitIndex
+	lastAppliedIndex := r.lastAppliedIndex
+	offset := lastAppliedIndex + 1
+	batchSize := int(commitIndex - offset)
+	if batchSize < 1 {
+		logger.Warn("Nothing to apply")
+		return
+	}
+	logs, err = r.raftLog.ReadBatchSince(offset, batchSize)
+	if err != nil {
+		logger.Errorf("Failed to retrieve the logs for apply. From index: %d, batchSize: %d", offset, batchSize, err)
+		return
+	}
+	r.stateMachine.Apply(logs)
+	r.lastAppliedIndex = commitIndex
+	r.persistState()
+	return
 }
 
 func (r *RaftServerImpl) processVoteRequest(req *VoteRequest) (*VoteResponse, error) {
@@ -227,10 +244,10 @@ func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) 
 	if len(req.Entries) > 0 && !r.matchEntry(req.PrevLogIndex, req.PrevLogTerm) {
 		return &AppendEntriesResponse{Term: r.currentTerm, Success: false}, nil
 	}
-
 	newEntriesLen := len(req.Entries)
-	if newEntriesLen > 0 && r.commitIndex > req.PrevLogIndex && req.PrevLogIndex > 0 {
-		index := uint64(math.Min(float64(r.commitIndex), float64(req.PrevLogIndex+uint64(newEntriesLen))) - 1)
+	currentLogIndex := r.raftLog.HighestOffset()
+	if newEntriesLen > 0 && currentLogIndex > req.PrevLogIndex && req.PrevLogIndex > 0 {
+		index := uint64(math.Min(float64(currentLogIndex), float64(req.PrevLogIndex+uint64(newEntriesLen))) - 1)
 		record, _ := r.raftLog.Read(index)
 		if record.Term != req.Entries[index-req.PrevLogIndex].Term {
 			err := r.raftLog.Truncate(req.PrevLogIndex - 1)
@@ -239,7 +256,7 @@ func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) 
 			}
 		}
 	}
-	if req.PrevLogIndex+uint64(len(req.Entries)) > r.commitIndex {
+	if req.PrevLogIndex+uint64(len(req.Entries)) > currentLogIndex {
 		for i := r.commitIndex - req.PrevLogIndex; i < uint64(len(req.Entries)); i++ {
 			_, err := r.raftLog.Append(&Record{
 				Term:  req.Entries[i].Term,
@@ -248,60 +265,16 @@ func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) 
 			if err != nil {
 				logger.Infof("Error while appending the entry %+v\n", req.Entries[i])
 			}
-			r.commitIndex++
 		}
 		logger.Infof("Committed %d entries to the state machine", len(req.Entries))
 	}
-	if newEntriesLen > 0 {
+	if req.LeaderCommitIndex > r.commitIndex {
+		r.commitIndex = req.LeaderCommitIndex
+	}
+	if newEntriesLen > 0 || req.LeaderCommitIndex > r.commitIndex {
 		r.persistState()
 	}
 	return &AppendEntriesResponse{Term: r.currentTerm, Success: true}, nil
-}
-
-func (r *RaftServerImpl) transferLeadership(*TransferLeadershipRequest) (*TransferLeadershipResponse, error) {
-	response := &TransferLeadershipResponse{
-		Success:  false,
-		LeaderId: string(r.currentLeader),
-	}
-	if r.leadershipTransferFlag {
-		return response, nil
-	}
-	r.leadershipTransferFlag = true
-	defer func() {
-		r.leadershipTransferFlag = false
-	}()
-
-	// Find the right candidate
-	var candidate ServerId
-	for serverId, index := range r.matchIndex {
-		if index >= r.commitIndex {
-			candidate = serverId
-			break
-		}
-	}
-	if candidate == "" {
-		return response, nil
-	}
-	timeoutReq := &TimeoutNowRequest{
-		LeaderId: string(r.serverId),
-	}
-	reqPayload := NewPayload[*TimeoutNowRequest](candidate, r.config.Nodes[candidate], timeoutReq)
-	res, err := r.transport.SendTimeoutRequest(reqPayload)
-	if err != nil {
-		return nil, err
-	}
-	response.Success = res.Message.Success
-	return response, nil
-}
-
-func (r *RaftServerImpl) timeoutNow(req *TimeoutNowRequest) (*TimeoutNowResponse, error) {
-	response := &TimeoutNowResponse{Success: false}
-	if ServerId(req.LeaderId) != r.currentLeader {
-		return response, nil
-	}
-	r.startElection()
-	response.Success = r.state.name() == State_Leader
-	return response, nil
 }
 
 func (r *RaftServerImpl) matchEntry(prevLogIndex uint64, prevLogTerm uint32) bool {

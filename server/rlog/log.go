@@ -166,20 +166,20 @@ func (l *Log) Reset() error {
 	return l.setup()
 }
 
-func (l *Log) LowestOffset() (uint64, error) {
+func (l *Log) LowestOffset() uint64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.segments[0].baseOffset, nil
+	return l.segments[0].baseOffset
 }
 
-func (l *Log) HighestOffset() (uint64, error) {
+func (l *Log) HighestOffset() uint64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	off := l.segments[len(l.segments)-1].nextOffset
 	if off == 0 {
-		return 0, nil
+		return 0
 	}
-	return off - 1, nil
+	return off - 1
 }
 
 // Truncate removes all segments whose highest offset is lower than lowest.

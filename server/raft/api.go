@@ -38,8 +38,8 @@ type RaftLog interface {
 	ReadAllSince(offset uint64) ([]*Record, error)
 	ReadBatchSince(offset uint64, batchSize int) ([]*Record, error)
 	Truncate(lowest uint64) error
-	LowestOffset() (uint64, error)
-	HighestOffset() (uint64, error)
+	LowestOffset() uint64
+	HighestOffset() uint64
 }
 
 type Command interface {

@@ -28,7 +28,7 @@ func (s *FollowerState) handleRPC(rpc *RPC) {
 		}
 		rpc.reply.Set(response, nil)
 	case *TimeoutNowRequest:
-		rpc.reply.Set(s.raftServer.timeoutNow(cmd))
+		rpc.reply.Set(s.timeoutNow(cmd))
 	case *AddServerRequest:
 		rpc.reply.Set(&AddServerResponse{Status: ResponseStatus_NotLeader, LeaderId: string(s.raftServer.currentLeader)}, nil)
 	case *RemoveServerRequest:
@@ -38,6 +38,16 @@ func (s *FollowerState) handleRPC(rpc *RPC) {
 	default:
 		rpc.reply.Set(nil, ErrUnknownCommand)
 	}
+}
+
+func (s *FollowerState) timeoutNow(req *TimeoutNowRequest) (*TimeoutNowResponse, error) {
+	response := &TimeoutNowResponse{Success: false}
+	if ServerId(req.LeaderId) != s.raftServer.currentLeader {
+		return response, nil
+	}
+	s.raftServer.startElection()
+	response.Success = s.raftServer.state.name() == State_Leader
+	return response, nil
 }
 
 func (s *FollowerState) offerCommand(requests []*OfferRequest) {

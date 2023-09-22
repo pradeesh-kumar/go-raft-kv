@@ -28,7 +28,7 @@ func main() {
 			ServerId:             raft.ServerId(*serverId),
 			ServerAddress:        raft.ServerAddress(*serverAddress),
 			BaseDirectory:        "/tmp/goraft/",
-			ReplicationBatchSize: 10,
+			ReplicationBatchSize: 50,
 			Timeouts: raft.Timeouts{
 				ElectionTimeout:  time.Duration(4000) * time.Millisecond,
 				BroadcastTimeout: time.Duration(1400) * time.Millisecond,

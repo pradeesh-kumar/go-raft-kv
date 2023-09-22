@@ -74,7 +74,8 @@ enum ResponseStatus {
   NotLeader = 1;
   Conflict = 2;
   LeaderStepDown = 3;
-  InternalError = 4;
+  LeadershipTransferInProgress = 4;
+  InternalError = 5;
 }
 
 message Record {
