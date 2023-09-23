@@ -110,6 +110,7 @@ func (s *LeaderState) addServer(req *AddServerRequest) (*AddServerResponse, erro
 	follower := &Follower{Node: node, nextIndex: s.raftServer.commitIndex + 1, matchIndex: 0}
 	s.replicators[follower.id] = newDefaultReplicator(follower, s, s.followerAppendSuccessCh)
 	s.replicators[follower.id].start()
+	success := false
 	for round := 1; round <= membershipMaxRounds; round++ {
 		logger.Infof("Starting the round %d for the learner node %s", round, follower.id)
 		currentLogIndex := s.raftServer.raftLog.HighestOffset()
@@ -117,15 +118,44 @@ func (s *LeaderState) addServer(req *AddServerRequest) (*AddServerResponse, erro
 
 		if s.replicators[follower.id].followerInfo().matchIndex >= currentLogIndex {
 			logger.Infof("Learner node %s picked up logs within election timeout at round %d", follower.id, round)
-			// success
-			// TODO implement
+			success = true
 		}
 	}
-	// The target server couldn't catch up the log in max rounds on time
-	logger.Infof("Learner node %s failed to pick up logs within election timeout at max rounds %d", follower.id, membershipMaxRounds)
-	s.replicators[follower.id].stop()
-	delete(s.replicators, follower.id)
-	return &AddServerResponse{Status: ResponseStatus_Timeout, LeaderId: string(s.raftServer.currentLeader)}, nil
+	if !success {
+		// The target server couldn't catch up the log in max rounds on time
+		logger.Infof("Learner node %s failed to pick up logs within election timeout at max rounds %d", follower.id, membershipMaxRounds)
+		s.replicators[follower.id].stop()
+		delete(s.replicators, follower.id)
+		return &AddServerResponse{Status: ResponseStatus_Timeout, LeaderId: string(s.raftServer.currentLeader)}, nil
+	}
+	newNodeInfo := &NodeInfo{
+		NodeId:  req.ServerId,
+		Address: req.ServerAddress,
+	}
+	configEntry := s.raftServer.currentConfig()
+	configEntry.Nodes = append(configEntry.Nodes, newNodeInfo)
+	record := &Record{
+		Term: s.raftServer.currentTerm,
+		LogEntryBody: &Record_ConfigEntry{
+			ConfigEntry: configEntry,
+		},
+	}
+	index, err := s.raftServer.raftLog.Append(record)
+	if err != nil {
+		return nil, err
+	}
+	logger.Infof("Config entry successfully created on the index %d", index)
+	future := NewBlockingFuture()
+	s.pendingRequests[index] = future
+	s.triggerReplicators()
+	_, err = future.Get()
+	if err != nil {
+		return nil, err
+	}
+	return &AddServerResponse{
+		Status:   ResponseStatus_Success,
+		LeaderId: string(s.raftServer.serverId),
+	}, nil
 }
 
 // canAddServer checks if the specified serverId already present in the config or another server add operation in progress
@@ -230,8 +260,8 @@ func (s *LeaderState) offerCommand(requests []*OfferRequest) {
 		}
 		r := &Record{
 			Term: s.raftServer.currentTerm,
-			LogEntryBody: &Record_DataEntry{
-				DataEntry: &DataEntry{Value: offerReq.cmd.Bytes()},
+			LogEntryBody: &Record_StateMachineEntry{
+				StateMachineEntry: &StateMachineEntry{Value: offerReq.cmd.Bytes()},
 			},
 		}
 		id, err := s.raftServer.raftLog.Append(r)

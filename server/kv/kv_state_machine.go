@@ -19,7 +19,7 @@ func newKVStateMachine() *KVStateMachine {
 	}
 }
 
-func (s *KVStateMachine) Apply(logs []*raft.Record) {
+func (s *KVStateMachine) Apply(logs []*raft.StateMachineEntry) {
 	for _, e := range logs {
 		insertCommand := NewInsertCommandFromBytes(e.Value)
 		s.Put(insertCommand.key, insertCommand.val)

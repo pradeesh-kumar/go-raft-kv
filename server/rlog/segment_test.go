@@ -13,8 +13,8 @@ func TestSegment(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	want := &raft.Record{
-		LogEntryBody: &raft.Record_DataEntry{
-			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		LogEntryBody: &raft.Record_StateMachineEntry{
+			StateMachineEntry: &raft.StateMachineEntry{Value: []byte("hello world")},
 		},
 	}
 
@@ -34,7 +34,7 @@ func TestSegment(t *testing.T) {
 
 		got, err := s.Read(off)
 		require.NoError(t, err)
-		require.Equal(t, want.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue(), got.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue())
+		require.Equal(t, want.LogEntryBody.(*raft.Record_StateMachineEntry).StateMachineEntry.GetValue(), got.LogEntryBody.(*raft.Record_StateMachineEntry).StateMachineEntry.GetValue())
 	}
 
 	_, err = s.Append(want)
@@ -43,7 +43,7 @@ func TestSegment(t *testing.T) {
 	// maxed index
 	require.True(t, s.IsMaxed())
 
-	c.MaxStoreBytes = uint64(len(want.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue()) * 3)
+	c.MaxStoreBytes = uint64(len(want.LogEntryBody.(*raft.Record_StateMachineEntry).StateMachineEntry.GetValue()) * 3)
 	c.MaxIndexBytes = 1024
 
 	s, err = newSegment(dir, 16, c)

@@ -36,8 +36,8 @@ func TestLog(t *testing.T) {
 
 func testAppendRead(t *testing.T, log *Log) {
 	append := &raft.Record{
-		LogEntryBody: &raft.Record_DataEntry{
-			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		LogEntryBody: &raft.Record_StateMachineEntry{
+			StateMachineEntry: &raft.StateMachineEntry{Value: []byte("hello world")},
 		},
 	}
 	off, err := log.Append(append)
@@ -46,7 +46,7 @@ func testAppendRead(t *testing.T, log *Log) {
 
 	read, err := log.Read(off)
 	require.NoError(t, err)
-	require.Equal(t, append.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue(), read.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue())
+	require.Equal(t, append.LogEntryBody.(*raft.Record_StateMachineEntry).StateMachineEntry.GetValue(), read.LogEntryBody.(*raft.Record_StateMachineEntry).StateMachineEntry.GetValue())
 }
 
 func testOutOfRangeErr(t *testing.T, log *Log) {
@@ -57,8 +57,8 @@ func testOutOfRangeErr(t *testing.T, log *Log) {
 
 func testInitExisting(t *testing.T, o *Log) {
 	append := &raft.Record{
-		LogEntryBody: &raft.Record_DataEntry{
-			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		LogEntryBody: &raft.Record_StateMachineEntry{
+			StateMachineEntry: &raft.StateMachineEntry{Value: []byte("hello world")},
 		},
 	}
 	for i := 0; i < 3; i++ {
@@ -83,8 +83,8 @@ func testInitExisting(t *testing.T, o *Log) {
 
 func testReader(t *testing.T, log *Log) {
 	append := &raft.Record{
-		LogEntryBody: &raft.Record_DataEntry{
-			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		LogEntryBody: &raft.Record_StateMachineEntry{
+			StateMachineEntry: &raft.StateMachineEntry{Value: []byte("hello world")},
 		},
 	}
 	off, err := log.Append(append)
@@ -98,13 +98,13 @@ func testReader(t *testing.T, log *Log) {
 	read := &raft.Record{}
 	err = proto.Unmarshal(b[lenWidth:], read)
 	require.NoError(t, err)
-	require.Equal(t, append.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue(), read.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue())
+	require.Equal(t, append.LogEntryBody.(*raft.Record_StateMachineEntry).StateMachineEntry.GetValue(), read.LogEntryBody.(*raft.Record_StateMachineEntry).StateMachineEntry.GetValue())
 }
 
 func testTruncate(t *testing.T, log *Log) {
 	append := &raft.Record{
-		LogEntryBody: &raft.Record_DataEntry{
-			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		LogEntryBody: &raft.Record_StateMachineEntry{
+			StateMachineEntry: &raft.StateMachineEntry{Value: []byte("hello world")},
 		},
 	}
 	for i := 0; i < 3; i++ {

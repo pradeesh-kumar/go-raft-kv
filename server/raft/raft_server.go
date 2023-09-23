@@ -116,12 +116,18 @@ func (r *RaftServerImpl) State() State {
 	return r.state.name()
 }
 
-func (r *RaftServerImpl) CurrentConfig() *ConfigurationEntry {
-	var nodeInfos []NodeInfo
-	for _, node := range r.config.Nodes {
-		nodeInfo :=
+func (r *RaftServerImpl) currentConfig() *ConfigEntry {
+	var nodeInfos []*NodeInfo
+	for serverId, serverAddress := range r.config.Nodes {
+		nodeInfo := &NodeInfo{
+			NodeId:  string(serverId),
+			Address: string(serverAddress),
+		}
+		nodeInfos = append(nodeInfos, nodeInfo)
 	}
-	return &ConfigurationEntry{}
+	return &ConfigEntry{
+		Nodes: nodeInfos,
+	}
 }
 
 func (r *RaftServerImpl) HandleRPC(cmd any) Future {
@@ -217,10 +223,35 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 		logger.Errorf("Failed to retrieve the logs for apply. From index: %d, batchSize: %d", offset, batchSize, err)
 		return
 	}
-	r.stateMachine.Apply(logs)
+	var stateMachineEntries []*StateMachineEntry
+	var configEntry *ConfigEntry = nil
+	for _, log := range logs {
+		switch entry := log.LogEntryBody.(type) {
+		case *Record_ConfigEntry:
+			configEntry = entry.ConfigEntry
+		case *Record_StateMachineEntry:
+			stateMachineEntries = append(stateMachineEntries, entry.StateMachineEntry)
+		}
+	}
+	r.stateMachine.Apply(stateMachineEntries)
+	if configEntry != nil {
+		r.updateLatestConfig(configEntry)
+	}
 	r.lastAppliedIndex = commitIndex
 	r.persistState()
 	return
+}
+
+func (r *RaftServerImpl) updateLatestConfig(configEntry *ConfigEntry) {
+	r.config.Nodes = make(map[ServerId]ServerAddress)
+	for _, nodeInfo := range configEntry.Nodes {
+		serverId := ServerId(nodeInfo.NodeId)
+		serverAddress := ServerAddress(nodeInfo.Address)
+		r.config.Nodes[serverId] = serverAddress
+	}
+	if _, ok := r.config.Nodes[r.serverId]; !ok && r.state.name() == State_Learner {
+		r.changeState(newFollowerState(r))
+	}
 }
 
 func (r *RaftServerImpl) processVoteRequest(req *VoteRequest) (*VoteResponse, error) {
@@ -275,10 +306,7 @@ func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) 
 	}
 	if req.PrevLogIndex+uint64(len(req.Entries)) > currentLogIndex {
 		for i := r.commitIndex - req.PrevLogIndex; i < uint64(len(req.Entries)); i++ {
-			_, err := r.raftLog.Append(&Record{
-				Term:  req.Entries[i].Term,
-				Value: req.Entries[i].Value,
-			})
+			_, err := r.raftLog.Append(req.Entries[i])
 			if err != nil {
 				logger.Infof("Error while appending the entry %+v\n", req.Entries[i])
 			}

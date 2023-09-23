@@ -90,16 +90,16 @@ message Record {
   uint64 offset = 2;
 
   oneof LogEntryBody {
-    DataEntry dataEntry = 3;
-    ConfigurationEntry configEntry = 4;
+    StateMachineEntry stateMachineEntry = 3;
+    ConfigEntry configEntry = 4;
   }
 }
 
-message DataEntry {
+message StateMachineEntry {
   bytes value = 1;
 }
 
-message ConfigurationEntry {
+message ConfigEntry {
   repeated NodeInfo nodes = 1;
 }
 

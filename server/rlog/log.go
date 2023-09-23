@@ -115,20 +115,22 @@ func (l *Log) ReadAllSince(offset uint64) ([]*raft.Record, error) {
 	return s.ReadAllSince(offset)
 }
 
-func (l *Log) ReadBatchSince(offset uint64, batchSize int) ([]*raft.Record, error) {
+func (l *Log) ReadBatchSince(offset uint64, batchSize int) (logs []*raft.Record, err error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	var s *segment
 	for _, seg := range l.segments {
 		if seg.baseOffset <= offset && offset < seg.nextOffset {
-			s = seg
-			break
+			logsRead, err := seg.ReadBatchSince(offset, batchSize)
+			if err != nil {
+				return nil, err
+			}
+			logs = append(logs, logsRead...)
+			if len(logs) >= batchSize {
+				return
+			}
 		}
 	}
-	if s == nil || s.nextOffset <= offset {
-		return nil, fmt.Errorf("offset out of range: %d", offset)
-	}
-	return s.ReadBatchSince(offset, batchSize)
+	return nil, fmt.Errorf("offset out of range: %d", offset)
 }
 
 func (l *Log) newSegment(off uint64) error {

@@ -24,7 +24,7 @@ type RaftState interface {
 }
 
 type StateMachine interface {
-	Apply(log []*Record)
+	Apply(log []*StateMachineEntry)
 	Close()
 }
 
