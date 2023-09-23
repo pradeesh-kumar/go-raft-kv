@@ -116,6 +116,14 @@ func (r *RaftServerImpl) State() State {
 	return r.state.name()
 }
 
+func (r *RaftServerImpl) CurrentConfig() *ConfigurationEntry {
+	var nodeInfos []NodeInfo
+	for _, node := range r.config.Nodes {
+		nodeInfo :=
+	}
+	return &ConfigurationEntry{}
+}
+
 func (r *RaftServerImpl) HandleRPC(cmd any) Future {
 	future := NewBlockingFuture()
 	r.rpcChan <- &RPC{cmd: cmd, reply: future}
