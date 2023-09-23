@@ -19,7 +19,6 @@ type RaftConfig struct {
 type Timeouts struct {
 	ElectionTimeout  time.Duration `yaml:"electionTimeout"`
 	HeartbeatTimeout time.Duration `yaml:"heartbeatTimeout"`
-	BatchDelay       time.Duration `yaml:"batchDelay"`
 	BroadcastTimeout time.Duration `yaml:"broadcastTimeout"`
 	ElectionJitter   int64         `yaml:"electionJitter"`
 }

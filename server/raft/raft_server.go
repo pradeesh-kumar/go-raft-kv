@@ -112,6 +112,10 @@ func (r *RaftServerImpl) Stop() {
 	r.stopChannel <- true
 }
 
+func (r *RaftServerImpl) State() State {
+	return r.state.name()
+}
+
 func (r *RaftServerImpl) HandleRPC(cmd any) Future {
 	future := NewBlockingFuture()
 	r.rpcChan <- &RPC{cmd: cmd, reply: future}
@@ -134,6 +138,11 @@ func (r *RaftServerImpl) changeState(newState RaftState) {
 
 // StartElection Begins leader election and sends the request to all the nodes in the cluster
 func (r *RaftServerImpl) startElection() {
+	if r.state.name() == State_Learner {
+		r.scheduleElection()
+		logger.Warn("Learner cannot start election")
+		return
+	}
 	r.currentLeader = ""
 	r.changeState(newCandidateState(r))
 	r.votedFor = r.serverId

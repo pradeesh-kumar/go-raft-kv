@@ -33,7 +33,6 @@ func main() {
 				ElectionTimeout:  time.Duration(4000) * time.Millisecond,
 				BroadcastTimeout: time.Duration(1400) * time.Millisecond,
 				HeartbeatTimeout: time.Duration(1500) * time.Millisecond,
-				BatchDelay:       time.Duration(50) * time.Millisecond,
 				ElectionJitter:   500,
 			},
 			Nodes: nodes,

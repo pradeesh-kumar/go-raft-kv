@@ -18,7 +18,6 @@ type DefaultReplicator struct {
 	raftServer              *RaftServerImpl
 	transport               Transport
 	heartBeatTimeout        time.Duration
-	batchDelay              time.Duration
 	heartBeatTimer          *time.Timer
 	followerAppendSuccessCh chan<- any
 	batchSize               int
@@ -36,7 +35,6 @@ func newDefaultReplicator(follower *Follower, leaderState *LeaderState, follower
 		transport:               leaderState.raftServer.transport,
 		batchSize:               leaderState.raftServer.config.ReplicationBatchSize,
 		heartBeatTimeout:        leaderState.raftServer.config.Timeouts.HeartbeatTimeout,
-		batchDelay:              leaderState.raftServer.config.Timeouts.BatchDelay,
 		heartBeatTimer:          time.NewTimer(largeFuture),
 		followerAppendSuccessCh: followerAppendSuccessCh,
 		signalCh:                make(chan any),
@@ -85,7 +83,7 @@ func (r *DefaultReplicator) scheduleHeartbeat() {
 }
 
 func (r *DefaultReplicator) scheduleImmediateNext() {
-	r.heartBeatTimer.Reset(r.batchDelay)
+	r.heartBeatTimer.Reset(0)
 }
 
 func (r *DefaultReplicator) followerInfo() *Follower {

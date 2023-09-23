@@ -1,6 +1,9 @@
 package kv
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type InsertCommand struct {
 	key string
@@ -21,5 +24,16 @@ func NewInsertCommandFromKV(key string, val string) InsertCommand {
 }
 
 func NewInsertCommandFromBytes(bytes []byte) InsertCommand {
-	return InsertCommand{}
+	cmd := string(bytes)
+	return parseInsertCommand(cmd)
+}
+
+func parseInsertCommand(cmd string) InsertCommand {
+	after, _ := strings.CutPrefix(cmd, "INSERT KEY=")
+	keyIndex := strings.Index(after, "")
+	key := after[:keyIndex]
+
+	valIndex := strings.Index(after, "=")
+	val := after[valIndex:]
+	return InsertCommand{key, val, cmd}
 }

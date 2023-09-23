@@ -36,7 +36,9 @@ func TestLog(t *testing.T) {
 
 func testAppendRead(t *testing.T, log *Log) {
 	append := &raft.Record{
-		Value: []byte("hello world"),
+		LogEntryBody: &raft.Record_DataEntry{
+			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		},
 	}
 	off, err := log.Append(append)
 	require.NoError(t, err)
@@ -44,7 +46,7 @@ func testAppendRead(t *testing.T, log *Log) {
 
 	read, err := log.Read(off)
 	require.NoError(t, err)
-	require.Equal(t, append.Value, read.Value)
+	require.Equal(t, append.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue(), read.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue())
 }
 
 func testOutOfRangeErr(t *testing.T, log *Log) {
@@ -55,7 +57,9 @@ func testOutOfRangeErr(t *testing.T, log *Log) {
 
 func testInitExisting(t *testing.T, o *Log) {
 	append := &raft.Record{
-		Value: []byte("hello world"),
+		LogEntryBody: &raft.Record_DataEntry{
+			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		},
 	}
 	for i := 0; i < 3; i++ {
 		_, err := o.Append(append)
@@ -63,27 +67,25 @@ func testInitExisting(t *testing.T, o *Log) {
 	}
 	require.NoError(t, o.Close())
 
-	off, err := o.LowestOffset()
-	require.NoError(t, err)
+	off := o.LowestOffset()
 	require.Equal(t, uint64(0), off)
-	off, err = o.HighestOffset()
-	require.NoError(t, err)
+	off = o.HighestOffset()
 	require.Equal(t, uint64(2), off)
 
 	n, err := NewLog(o.Dir, o.Config)
 	require.NoError(t, err)
 
-	off, err = n.LowestOffset()
-	require.NoError(t, err)
+	off = n.LowestOffset()
 	require.Equal(t, uint64(0), off)
-	off, err = n.HighestOffset()
-	require.NoError(t, err)
+	off = n.HighestOffset()
 	require.Equal(t, uint64(2), off)
 }
 
 func testReader(t *testing.T, log *Log) {
 	append := &raft.Record{
-		Value: []byte("hello world"),
+		LogEntryBody: &raft.Record_DataEntry{
+			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		},
 	}
 	off, err := log.Append(append)
 	require.NoError(t, err)
@@ -96,12 +98,14 @@ func testReader(t *testing.T, log *Log) {
 	read := &raft.Record{}
 	err = proto.Unmarshal(b[lenWidth:], read)
 	require.NoError(t, err)
-	require.Equal(t, append.Value, read.Value)
+	require.Equal(t, append.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue(), read.LogEntryBody.(*raft.Record_DataEntry).DataEntry.GetValue())
 }
 
 func testTruncate(t *testing.T, log *Log) {
 	append := &raft.Record{
-		Value: []byte("hello world"),
+		LogEntryBody: &raft.Record_DataEntry{
+			DataEntry: &raft.DataEntry{Value: []byte("hello world")},
+		},
 	}
 	for i := 0; i < 3; i++ {
 		_, err := log.Append(append)

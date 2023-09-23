@@ -8,13 +8,14 @@ import (
 
 const defaultChanBuffer = 1000
 const leadershipTransferLogCatchupTimeout = time.Duration(4000) * time.Millisecond
+const membershipMaxRounds = 5
 
 type LeaderState struct {
 	raftServer              *RaftServerImpl
 	replicators             map[ServerId]Replicator
 	pendingRequests         map[uint64]MutableFuture
 	leadershipTransferFlag  bool
-	followerAppendSuccessCh <-chan any
+	followerAppendSuccessCh chan any
 	applySignalCh           chan any
 	stopChannel             chan any
 }
@@ -82,14 +83,60 @@ func (s *LeaderState) handleRPC(rpc *RPC) {
 	case *TimeoutNowRequest:
 		rpc.reply.Set(&TimeoutNowResponse{Success: false}, nil)
 	case *AddServerRequest:
-		// TODO implement
+		go rpc.reply.Set(s.addServer(cmd))
 	case *RemoveServerRequest:
-		// TODO implement
+		go rpc.reply.Set(s.removeServer(cmd))
 	case []*OfferRequest:
 		s.offerCommand(cmd)
 	default:
 		rpc.reply.Set(nil, ErrUnknownCommand)
 	}
+}
+
+func (s *LeaderState) removeServer(req *RemoveServerRequest) (*RemoveServerResponse, error) {
+	if _, ok := s.raftServer.config.Nodes[ServerId(req.ServerId)]; !ok {
+		return &RemoveServerResponse{Status: ResponseStatus_NotFound, LeaderId: string(s.raftServer.currentLeader)}, nil
+	}
+	// TODO implement
+	return nil, nil
+}
+
+func (s *LeaderState) addServer(req *AddServerRequest) (*AddServerResponse, error) {
+	if s.canAddServer(ServerId(req.ServerId)) {
+		logger.Warn("Either the server %s already exist or other server add in progress.", req.ServerId)
+		return &AddServerResponse{Status: ResponseStatus_Conflict, LeaderId: string(s.raftServer.currentLeader)}, nil
+	}
+	node := Node{ServerId(req.ServerId), ServerAddress(req.ServerAddress)}
+	follower := &Follower{Node: node, nextIndex: s.raftServer.commitIndex + 1, matchIndex: 0}
+	s.replicators[follower.id] = newDefaultReplicator(follower, s, s.followerAppendSuccessCh)
+	s.replicators[follower.id].start()
+	for round := 1; round <= membershipMaxRounds; round++ {
+		logger.Infof("Starting the round %d for the learner node %s", round, follower.id)
+		currentLogIndex := s.raftServer.raftLog.HighestOffset()
+		time.Sleep(s.raftServer.config.Timeouts.ElectionTimeout)
+
+		if s.replicators[follower.id].followerInfo().matchIndex >= currentLogIndex {
+			logger.Infof("Learner node %s picked up logs within election timeout at round %d", follower.id, round)
+			// success
+			// TODO implement
+		}
+	}
+	// The target server couldn't catch up the log in max rounds on time
+	logger.Infof("Learner node %s failed to pick up logs within election timeout at max rounds %d", follower.id, membershipMaxRounds)
+	s.replicators[follower.id].stop()
+	delete(s.replicators, follower.id)
+	return &AddServerResponse{Status: ResponseStatus_Timeout, LeaderId: string(s.raftServer.currentLeader)}, nil
+}
+
+// canAddServer checks if the specified serverId already present in the config or another server add operation in progress
+func (s *LeaderState) canAddServer(serverId ServerId) bool {
+	if _, ok := s.raftServer.config.Nodes[serverId]; ok {
+		return false
+	}
+	if _, ok := s.replicators[serverId]; ok {
+		return false
+	}
+	return true
 }
 
 func (s *LeaderState) transferLeadership() (*TransferLeadershipResponse, error) {
@@ -182,8 +229,10 @@ func (s *LeaderState) offerCommand(requests []*OfferRequest) {
 			continue
 		}
 		r := &Record{
-			Term:  s.raftServer.currentTerm,
-			Value: offerReq.cmd.Bytes(),
+			Term: s.raftServer.currentTerm,
+			LogEntryBody: &Record_DataEntry{
+				DataEntry: &DataEntry{Value: offerReq.cmd.Bytes()},
+			},
 		}
 		id, err := s.raftServer.raftLog.Append(r)
 		if err != nil {

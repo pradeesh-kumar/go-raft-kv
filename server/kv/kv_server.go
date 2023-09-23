@@ -59,6 +59,9 @@ func (ks *KVServer) Stop() {
 }
 
 func (ks *KVServer) Put(_ context.Context, req *PutRequest) (*PutResponse, error) {
+	if ks.raftServer.State() == raft.State_Learner {
+		return &PutResponse{Status: ResponseStatus_Learner}, nil
+	}
 	cmd := NewInsertCommandFromKV(req.Key, req.Value)
 	offerReplyFuture := ks.raftServer.OfferCommand(&cmd)
 	offerReply, err := offerReplyFuture.Get()
@@ -74,6 +77,9 @@ func (ks *KVServer) Put(_ context.Context, req *PutRequest) (*PutResponse, error
 }
 
 func (ks *KVServer) Get(_ context.Context, req *GetRequest) (*GetResponse, error) {
+	if ks.raftServer.State() == raft.State_Learner {
+		return &GetResponse{Status: ResponseStatus_Learner}, nil
+	}
 	res := &GetResponse{
 		Key:    req.Key,
 		Value:  ks.stateMachine.Get(req.Key),

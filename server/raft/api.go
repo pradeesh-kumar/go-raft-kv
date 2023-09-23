@@ -12,6 +12,7 @@ var ErrUnknownCommand = errors.New("unknown command")
 type RaftServer interface {
 	Start()
 	Stop()
+	State() State
 	OfferCommand(command Command) Future
 }
 
@@ -68,15 +69,15 @@ type Payload[M any] struct {
 	Message M
 }
 
-type Node struct {
-	id      ServerId
-	address ServerAddress
-}
-
 type Follower struct {
 	Node
 	nextIndex  uint64
 	matchIndex uint64
+}
+
+type Node struct {
+	id      ServerId
+	address ServerAddress
 }
 
 func NewPayload[M any](sid ServerId, address ServerAddress, message M) Payload[M] {

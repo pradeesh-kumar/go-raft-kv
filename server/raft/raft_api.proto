@@ -75,19 +75,39 @@ enum ResponseStatus {
   Conflict = 2;
   LeaderStepDown = 3;
   LeadershipTransferInProgress = 4;
-  InternalError = 5;
+  Timeout = 5;
+  NotFound = 6;
+  InternalError = 7;
+}
+
+message NodeInfo {
+  string nodeId = 1;
+  string address = 2;
 }
 
 message Record {
   uint32 term = 1;
-  bytes value = 2;
-  uint64 offset = 3;
+  uint64 offset = 2;
+
+  oneof LogEntryBody {
+    DataEntry dataEntry = 3;
+    ConfigurationEntry configEntry = 4;
+  }
+}
+
+message DataEntry {
+  bytes value = 1;
+}
+
+message ConfigurationEntry {
+  repeated NodeInfo nodes = 1;
 }
 
 enum State {
   Follower = 0;
   Candidate = 1;
   Leader = 2;
+  Learner = 3;
 }
 
 service RaftProtocolService {

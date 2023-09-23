@@ -31,6 +31,7 @@ enum ResponseStatus {
   StaleLeader = 4;
   LogNotFound = 5;
   InternalError = 6;
+  Learner = 7;
 }
 
 service ClientProtocolService {

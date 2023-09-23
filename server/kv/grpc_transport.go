@@ -56,35 +56,35 @@ func (t *GrpcTransport) Start() {
 	time.Sleep(5 * time.Second)
 }
 
-func dispatch[REQ any, RES any](t *GrpcTransport, req REQ) (RES, error) {
+func dispatch[REQ any, RES any](t *GrpcTransport, req REQ) (*RES, error) {
 	val, err := t.messageHandler.HandleRPC(req).Get()
 	if val == nil {
-		return val, err
+		return nil, err
 	}
-	return val.(RES), err
+	return val.(*RES), err
 }
 
 func (t *GrpcTransport) RequestVote(c context.Context, req *raft.VoteRequest) (*raft.VoteResponse, error) {
-	return dispatch[*raft.VoteRequest, *raft.VoteResponse](t, req)
+	return dispatch[*raft.VoteRequest, raft.VoteResponse](t, req)
 }
 
 func (t *GrpcTransport) AppendEntries(c context.Context, req *raft.AppendEntriesRequest) (*raft.AppendEntriesResponse, error) {
-	return dispatch[*raft.AppendEntriesRequest, *raft.AppendEntriesResponse](t, req)
+	return dispatch[*raft.AppendEntriesRequest, raft.AppendEntriesResponse](t, req)
 }
 
 func (t *GrpcTransport) TransferLeadership(c context.Context, req *raft.TransferLeadershipRequest) (*raft.TransferLeadershipResponse, error) {
-	return dispatch[*raft.TransferLeadershipRequest, *raft.TransferLeadershipResponse](t, req)
+	return dispatch[*raft.TransferLeadershipRequest, raft.TransferLeadershipResponse](t, req)
 }
 
 func (t *GrpcTransport) TimeoutNow(c context.Context, req *raft.TimeoutNowRequest) (*raft.TimeoutNowResponse, error) {
-	return dispatch[*raft.TimeoutNowRequest, *raft.TimeoutNowResponse](t, req)
+	return dispatch[*raft.TimeoutNowRequest, raft.TimeoutNowResponse](t, req)
 }
 
 func (t *GrpcTransport) AddServer(c context.Context, req *raft.AddServerRequest) (*raft.AddServerResponse, error) {
-	return dispatch[*raft.AddServerRequest, *raft.AddServerResponse](t, req)
+	return dispatch[*raft.AddServerRequest, raft.AddServerResponse](t, req)
 }
 func (t *GrpcTransport) RemoveServer(c context.Context, req *raft.RemoveServerRequest) (*raft.RemoveServerResponse, error) {
-	return dispatch[*raft.RemoveServerRequest, *raft.RemoveServerResponse](t, req)
+	return dispatch[*raft.RemoveServerRequest, raft.RemoveServerResponse](t, req)
 }
 
 func (t *GrpcTransport) SendTimeoutRequest(req raft.Payload[*raft.TimeoutNowRequest]) (raft.Payload[*raft.TimeoutNowResponse], error) {
