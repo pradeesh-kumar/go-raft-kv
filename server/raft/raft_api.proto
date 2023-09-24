@@ -94,6 +94,7 @@ message Record {
   oneof LogEntryBody {
     StateMachineEntry stateMachineEntry = 3;
     ConfigEntry configEntry = 4;
+    SnapshotMetadataEntry snapshotMetadataEntry = 5;
   }
 }
 
@@ -105,11 +106,22 @@ message ConfigEntry {
   repeated NodeInfo nodes = 1;
 }
 
+message SnapshotMetadataEntry {
+  uint64 commitIndex = 1;
+}
+
 enum State {
   Follower = 0;
   Candidate = 1;
   Leader = 2;
   Learner = 3;
+}
+
+message PersistentState {
+  uint64 CommittedIndex = 1;
+  uint64 LastAppliedIndex = 2;
+  uint32 CurrentTerm = 3;
+  string VotedFor = 4;
 }
 
 service RaftProtocolService {
@@ -124,11 +136,4 @@ service RaftProtocolService {
   // Cluster Membership Change
   rpc AddServer(AddServerRequest) returns (AddServerResponse) {}
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse) {}
-}
-
-message PersistentState {
-  uint64 CommittedIndex = 1;
-  uint64 LastAppliedIndex = 2;
-  uint32 CurrentTerm = 3;
-  string VotedFor = 4;
 }

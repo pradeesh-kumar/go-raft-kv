@@ -16,3 +16,12 @@ func TestParseInsertCommand(t *testing.T) {
 	assert.Equal(t, "name", deserialized.key)
 	assert.Equal(t, "raft", deserialized.val)
 }
+
+func TestParseDeleteCommand(t *testing.T) {
+	key := "hello"
+	deleteCommand := NewDeleteCommandFromKey(key)
+	assert.Equal(t, fmt.Sprintf("DELETE KEY=%s", key), deleteCommand.cmd)
+
+	deserialized := NewDeleteCommandFromRaw(deleteCommand.cmd)
+	assert.Equal(t, key, deserialized.key)
+}

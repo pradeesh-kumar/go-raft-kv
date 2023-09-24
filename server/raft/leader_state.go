@@ -6,9 +6,11 @@ import (
 	"time"
 )
 
-const defaultChanBuffer = 1000
-const leadershipTransferLogCatchupTimeout = time.Duration(4000) * time.Millisecond
-const membershipMaxRounds = 5
+const (
+	defaultChanBuffer                   = 1000
+	membershipMaxRounds                 = 5
+	leadershipTransferLogCatchupTimeout = time.Duration(4000) * time.Millisecond
+)
 
 type LeaderState struct {
 	raftServer              *RaftServerImpl

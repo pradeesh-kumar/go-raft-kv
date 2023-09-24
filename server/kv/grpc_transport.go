@@ -22,6 +22,7 @@ type GrpcTransport struct {
 	messageHandler raft.RPCHandler
 	TransportOpts
 	raft.UnimplementedRaftProtocolServiceServer
+	raft.UnimplementedRaftClientServiceServer
 }
 
 func NewGrpcTransport(transportOpts TransportOpts) *GrpcTransport {

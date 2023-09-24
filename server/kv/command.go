@@ -40,12 +40,9 @@ func NewDeleteCommandFromKey(key string) *DeleteCommand {
 }
 
 func NewDeleteCommandFromRaw(cmd string) *DeleteCommand {
-	after, _ := strings.CutPrefix(cmd, "DELETE KEY=")
-	keyIndex := strings.Index(after, "")
-	key := after[:keyIndex]
 	return &DeleteCommand{
 		KVCommandProperty: KVCommandProperty{
-			key: key,
+			key: parseKey(cmd),
 			cmd: cmd,
 		},
 	}
@@ -75,17 +72,26 @@ func NewInsertCommandFromKV(key string, val string) *InsertCommand {
 }
 
 func NewInsertCommandFromRaw(cmd string) *InsertCommand {
-	after, _ := strings.CutPrefix(cmd, "INSERT KEY=")
-	keyIndex := strings.Index(after, "")
-	key := after[:keyIndex]
-
-	valIndex := strings.Index(after, "=")
-	val := after[valIndex:]
 	return &InsertCommand{
 		KVCommandProperty: KVCommandProperty{
-			key: key,
-			val: val,
+			key: parseKey(cmd),
+			val: parseVal(cmd),
 			cmd: cmd,
 		},
 	}
+}
+
+func parseKey(cmd string) string {
+	begIdx := strings.Index(cmd, "KEY=") + 4
+	cmd = cmd[begIdx:]
+	endIdx := strings.Index(cmd, " ")
+	if endIdx != -1 {
+		return cmd[:endIdx]
+	}
+	return cmd
+}
+
+func parseVal(cmd string) string {
+	begIdx := strings.Index(cmd, "VALUE=") + 6
+	return cmd[begIdx:]
 }

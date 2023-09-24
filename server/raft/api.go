@@ -25,6 +25,7 @@ type RaftState interface {
 
 type StateMachine interface {
 	Apply(log []*StateMachineEntry)
+	TakeSnapshot() error
 	Close()
 }
 

@@ -1,10 +1,10 @@
 package kvclient
 
 type SessionManager interface {
-	GetSession() Session
+	GetSession() *Session
 }
 
-type DefaultKvSessionManager struct {
+type DefaultSessionManager struct {
 }
 
 type Session struct {

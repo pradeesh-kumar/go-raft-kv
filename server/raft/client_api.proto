@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package raft;
+option go_package = "github.com/pradeesh-kumar/go-raft-kv/raft";
+import "raft/raft_api.proto";
+
+message RegisterClientRequest {
+}
+
+message RegisterClientResponse {
+  ResponseStatus status = 1;
+  int32 clientId = 2;
+  string leaderId = 3;
+}
+
+message WriteRequest {
+  int32 clientId = 1;
+  int32 sequenceNumber = 2;
+  bytes command = 3;
+}
+
+message WriteResponse {
+  ResponseStatus status = 1;
+  bytes response = 2;
+  string leaderId = 3;
+}
+
+message QueryRequest {
+  bytes query = 1;
+}
+
+message QueryResponse {
+  ResponseStatus status = 1;
+  bytes response = 2;
+  string leaderId = 3;
+}
+
+service RaftClientService {
+  rpc RegisterClient(RegisterClientRequest) returns (RegisterClientResponse) {}
+  rpc Write(WriteRequest) returns (WriteResponse) {}
+  rpc Query(QueryRequest) returns (QueryResponse) {}
+}

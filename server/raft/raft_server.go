@@ -225,12 +225,30 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 	}
 	var stateMachineEntries []*StateMachineEntry
 	var configEntry *ConfigEntry = nil
-	for _, log := range logs {
+	for i, log := range logs {
 		switch entry := log.LogEntryBody.(type) {
 		case *Record_ConfigEntry:
 			configEntry = entry.ConfigEntry
 		case *Record_StateMachineEntry:
 			stateMachineEntries = append(stateMachineEntries, entry.StateMachineEntry)
+		case *Record_SnapshotMetadataEntry:
+			r.stateMachine.Apply(stateMachineEntries)
+			stateMachineEntries = make([]*StateMachineEntry, 0)
+			err := r.stateMachine.TakeSnapshot()
+			if err != nil {
+				logger.Errorf("Failed to take snapshot ", err)
+				r.lastAppliedIndex = log.Offset - 1
+				r.persistState()
+				if configEntry != nil {
+					r.updateLatestConfig(configEntry)
+				}
+				return logs[:i-1], nil
+			} else {
+				err := r.raftLog.Truncate(log.Offset - 1)
+				if err != nil {
+					logger.Errorf("failed to truncate logs ", err)
+				}
+			}
 		}
 	}
 	r.stateMachine.Apply(stateMachineEntries)
