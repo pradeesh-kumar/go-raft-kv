@@ -45,7 +45,12 @@ func (*LeaderState) name() State {
 }
 
 func (s *LeaderState) start() {
-	// TODO create an empty config log amd Replicate it
+	configEntry := s.raftServer.currentConfig()
+	_, err := s.appendConfigEntry(configEntry)
+	if err != nil {
+		logger.Fatal("failed to append the initial leader config entry", err)
+	}
+
 	for {
 		select {
 		case <-s.followerAppendSuccessCh:
@@ -93,6 +98,16 @@ func (s *LeaderState) handleRPC(rpc *RPC) {
 	}
 }
 
+func (s *LeaderState) appendConfigEntry(configEntry *ConfigEntry) (uint64, error) {
+	record := &Record{
+		Term: s.raftServer.currentTerm,
+		LogEntryBody: &Record_ConfigEntry{
+			ConfigEntry: configEntry,
+		},
+	}
+	return s.raftServer.raftLog.Append(record)
+}
+
 func (s *LeaderState) removeServer(req *RemoveServerRequest) (*RemoveServerResponse, error) {
 	serverIdToBeRemoved := ServerId(req.ServerId)
 	if _, ok := s.raftServer.config.Nodes[serverIdToBeRemoved]; !ok {
@@ -108,13 +123,7 @@ func (s *LeaderState) removeServer(req *RemoveServerRequest) (*RemoveServerRespo
 		}
 	}
 	configEntry.Nodes = append(configEntry.Nodes[:cfgIdx], configEntry.Nodes[cfgIdx+1:]...)
-	record := &Record{
-		Term: s.raftServer.currentTerm,
-		LogEntryBody: &Record_ConfigEntry{
-			ConfigEntry: configEntry,
-		},
-	}
-	index, err := s.raftServer.raftLog.Append(record)
+	index, err := s.appendConfigEntry(configEntry)
 	if err != nil {
 		return nil, err
 	}
@@ -167,13 +176,7 @@ func (s *LeaderState) addServer(req *AddServerRequest) (*AddServerResponse, erro
 	}
 	configEntry := s.raftServer.currentConfig()
 	configEntry.Nodes = append(configEntry.Nodes, newNodeInfo)
-	record := &Record{
-		Term: s.raftServer.currentTerm,
-		LogEntryBody: &Record_ConfigEntry{
-			ConfigEntry: configEntry,
-		},
-	}
-	index, err := s.raftServer.raftLog.Append(record)
+	index, err := s.appendConfigEntry(configEntry)
 	if err != nil {
 		return nil, err
 	}
