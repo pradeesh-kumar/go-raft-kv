@@ -12,7 +12,7 @@ func TestParseInsertCommand(t *testing.T) {
 	insertCommand := NewInsertCommandFromKV("name", "raft")
 	assert.Equal(t, fmt.Sprintf("INSERT KEY=%s VALUE=%s", key, val), insertCommand.cmd)
 
-	deserialized := NewInsertCommandFromBytes(insertCommand.Bytes())
+	deserialized := NewInsertCommandFromRaw(insertCommand.cmd)
 	assert.Equal(t, "name", deserialized.key)
 	assert.Equal(t, "raft", deserialized.val)
 }

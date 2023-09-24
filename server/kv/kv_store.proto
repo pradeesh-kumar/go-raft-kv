@@ -23,6 +23,15 @@ message GetResponse {
   string value = 3;
 }
 
+message DeleteRequest {
+  string key = 1;
+}
+
+message DeleteResponse {
+  ResponseStatus status = 1;
+  string leaderId = 2;
+}
+
 enum ResponseStatus {
   Success = 0;
   NotLeader = 1;
@@ -37,4 +46,6 @@ enum ResponseStatus {
 service ClientProtocolService {
   rpc Put(PutRequest) returns (PutResponse) {}
   rpc Get(GetRequest) returns (GetResponse) {}
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {}
+
 }

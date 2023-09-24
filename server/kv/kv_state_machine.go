@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"github.com/pradeesh-kumar/go-raft-kv/logger"
 	"github.com/pradeesh-kumar/go-raft-kv/raft"
 	"sync"
 	"time"
@@ -21,17 +22,32 @@ func newKVStateMachine() *KVStateMachine {
 
 func (s *KVStateMachine) Apply(logs []*raft.StateMachineEntry) {
 	for _, e := range logs {
-		insertCommand := NewInsertCommandFromBytes(e.Value)
-		s.Put(insertCommand.key, insertCommand.val)
+		kvCommand, err := parseCommand(e.Value)
+		if err != nil {
+			logger.Error(err)
+			continue
+		}
+		switch cmd := kvCommand.(type) {
+		case *InsertCommand:
+			s.processInsertCommand(cmd)
+		case *DeleteCommand:
+			s.processDeleteCommand(cmd)
+		default:
+			logger.Error("Unrecognized command ", cmd)
+		}
 	}
-}
-
-func (s *KVStateMachine) Put(key string, val string) {
-	s.inMemMap[key] = val
 }
 
 func (s *KVStateMachine) Get(key string) string {
 	return s.inMemMap[key]
+}
+
+func (s *KVStateMachine) processInsertCommand(cmd *InsertCommand) {
+	s.inMemMap[cmd.key] = cmd.val
+}
+
+func (s *KVStateMachine) processDeleteCommand(cmd *DeleteCommand) {
+	delete(s.inMemMap, cmd.key)
 }
 
 func (s *KVStateMachine) persist() {

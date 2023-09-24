@@ -120,9 +120,9 @@ func (l *Log) ReadBatchSince(offset uint64, batchSize int) (logs []*raft.Record,
 	defer l.mu.RUnlock()
 	for _, seg := range l.segments {
 		if seg.baseOffset <= offset && offset < seg.nextOffset {
-			logsRead, err := seg.ReadBatchSince(offset, batchSize)
-			if err != nil {
-				return nil, err
+			logsRead, readErr := seg.ReadBatchSince(offset, batchSize)
+			if readErr != nil {
+				return nil, readErr
 			}
 			logs = append(logs, logsRead...)
 			if len(logs) >= batchSize {

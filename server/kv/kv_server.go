@@ -63,13 +63,31 @@ func (ks *KVServer) Put(_ context.Context, req *PutRequest) (*PutResponse, error
 		return &PutResponse{Status: ResponseStatus_Learner}, nil
 	}
 	cmd := NewInsertCommandFromKV(req.Key, req.Value)
-	offerReplyFuture := ks.raftServer.OfferCommand(&cmd)
+	offerReplyFuture := ks.raftServer.OfferCommand(cmd)
 	offerReply, err := offerReplyFuture.Get()
 	if err != nil {
 		return nil, err
 	}
 	offerR := offerReply.(*raft.OfferResponse)
 	res := &PutResponse{
+		Status:   ResponseStatus(offerR.Status.Number()),
+		LeaderId: offerR.LeaderId,
+	}
+	return res, err
+}
+
+func (ks *KVServer) Delete(_ context.Context, req *DeleteRequest) (*DeleteResponse, error) {
+	if ks.raftServer.State() == raft.State_Learner {
+		return &DeleteResponse{Status: ResponseStatus_Learner}, nil
+	}
+	cmd := NewDeleteCommandFromKey(req.Key)
+	offerReplyFuture := ks.raftServer.OfferCommand(cmd)
+	offerReply, err := offerReplyFuture.Get()
+	if err != nil {
+		return nil, err
+	}
+	offerR := offerReply.(*raft.OfferResponse)
+	res := &DeleteResponse{
 		Status:   ResponseStatus(offerR.Status.Number()),
 		LeaderId: offerR.LeaderId,
 	}
