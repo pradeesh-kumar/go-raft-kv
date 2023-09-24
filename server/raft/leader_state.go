@@ -94,11 +94,44 @@ func (s *LeaderState) handleRPC(rpc *RPC) {
 }
 
 func (s *LeaderState) removeServer(req *RemoveServerRequest) (*RemoveServerResponse, error) {
-	if _, ok := s.raftServer.config.Nodes[ServerId(req.ServerId)]; !ok {
+	serverIdToBeRemoved := ServerId(req.ServerId)
+	if _, ok := s.raftServer.config.Nodes[serverIdToBeRemoved]; !ok {
+		logger.Infof("Invalid RemoveServerRequest! The requested server %s not found in the configuration", req.ServerId)
 		return &RemoveServerResponse{Status: ResponseStatus_NotFound, LeaderId: string(s.raftServer.currentLeader)}, nil
 	}
-	// TODO implement
-	return nil, nil
+	configEntry := s.raftServer.currentConfig()
+	cfgIdx := 0
+	for i, node := range configEntry.Nodes {
+		if node.NodeId == req.ServerId {
+			cfgIdx = i
+			break
+		}
+	}
+	configEntry.Nodes = append(configEntry.Nodes[:cfgIdx], configEntry.Nodes[cfgIdx+1:]...)
+	record := &Record{
+		Term: s.raftServer.currentTerm,
+		LogEntryBody: &Record_ConfigEntry{
+			ConfigEntry: configEntry,
+		},
+	}
+	index, err := s.raftServer.raftLog.Append(record)
+	if err != nil {
+		return nil, err
+	}
+	logger.Infof("Config entry successfully created on the index %d", index)
+	future := NewBlockingFuture()
+	s.pendingRequests[index] = future
+	s.triggerReplicators()
+	_, err = future.Get()
+	if err != nil {
+		return nil, err
+	}
+	s.replicators[serverIdToBeRemoved].stop()
+	delete(s.replicators, serverIdToBeRemoved)
+	return &RemoveServerResponse{
+		Status:   ResponseStatus_Success,
+		LeaderId: string(s.raftServer.serverId),
+	}, nil
 }
 
 func (s *LeaderState) addServer(req *AddServerRequest) (*AddServerResponse, error) {
