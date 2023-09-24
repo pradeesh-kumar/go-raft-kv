@@ -15,6 +15,7 @@ type LeaderState struct {
 	replicators             map[ServerId]Replicator
 	pendingRequests         map[uint64]MutableFuture
 	leadershipTransferFlag  bool
+	running                 bool
 	followerAppendSuccessCh chan any
 	applySignalCh           chan any
 	stopChannel             chan any
@@ -45,6 +46,7 @@ func (*LeaderState) name() State {
 }
 
 func (s *LeaderState) start() {
+	s.running = true
 	configEntry := s.raftServer.currentConfig()
 	_, err := s.appendConfigEntry(configEntry)
 	if err != nil {
@@ -66,12 +68,6 @@ func (s *LeaderState) start() {
 		case <-s.applySignalCh:
 			s.applyLogs()
 		case <-s.stopChannel:
-			for _, r := range s.replicators {
-				r.stop()
-			}
-			for _, pendingRequest := range s.pendingRequests {
-				pendingRequest.Set(&OfferResponse{Status: ResponseStatus_LeaderStepDown}, nil)
-			}
 			return
 		}
 	}
@@ -294,6 +290,10 @@ func (s *LeaderState) offerCommand(requests []*OfferRequest) {
 			offerReq.reply.Set(&OfferResponse{Status: ResponseStatus_LeadershipTransferInProgress}, nil)
 			continue
 		}
+		if !s.running {
+			offerReq.reply.Set(&OfferResponse{Status: ResponseStatus_ShutdownInProgress}, nil)
+			continue
+		}
 		r := &Record{
 			Term: s.raftServer.currentTerm,
 			LogEntryBody: &Record_StateMachineEntry{
@@ -330,5 +330,12 @@ func (s *LeaderState) triggerReplicators() {
 }
 
 func (s *LeaderState) stop() {
+	for _, r := range s.replicators {
+		r.stop()
+	}
+	for _, pendingRequest := range s.pendingRequests {
+		pendingRequest.Set(&OfferResponse{Status: ResponseStatus_LeaderStepDown}, nil)
+	}
+	s.running = false
 	s.stopChannel <- true
 }

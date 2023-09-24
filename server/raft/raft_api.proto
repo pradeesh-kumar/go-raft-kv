@@ -26,7 +26,8 @@ message AppendEntriesRequest {
 
 message AppendEntriesResponse {
   uint32 term = 1;
-  bool success = 2;
+  uint64 lastLogIndex = 2;
+  bool success = 3;
 }
 
 message TransferLeadershipRequest {
@@ -75,9 +76,10 @@ enum ResponseStatus {
   Conflict = 2;
   LeaderStepDown = 3;
   LeadershipTransferInProgress = 4;
-  Timeout = 5;
-  NotFound = 6;
-  InternalError = 7;
+  ShutdownInProgress = 5;
+  Timeout = 6;
+  NotFound = 7;
+  InternalError = 8;
 }
 
 message NodeInfo {

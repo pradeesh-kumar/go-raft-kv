@@ -60,9 +60,6 @@ func (r *DefaultReplicator) startInBackground() {
 			case <-r.heartBeatTimer.C:
 				r.sendHeartbeat()
 			case <-r.stopCh:
-				logger.Debug("Replicator received stop signal. Terminating the replicator")
-				r.stopHeartbeat()
-				r.running = false
 				return
 			}
 		}
@@ -71,6 +68,9 @@ func (r *DefaultReplicator) startInBackground() {
 }
 
 func (r *DefaultReplicator) stop() {
+	logger.Debug("Replicator received stop signal. Terminating the replicator")
+	r.stopHeartbeat()
+	r.running = false
 	r.stopCh <- true
 }
 
@@ -141,8 +141,12 @@ func (r *DefaultReplicator) sendHeartbeat() {
 		r.raftServer.currentTerm = response.Message.Term
 		r.leaderState.stepDown()
 		return
-	} else {
-		r.follower.nextIndex = r.follower.nextIndex - 1
+	} else if !response.Message.Success {
+		if response.Message.LastLogIndex < r.follower.nextIndex {
+			r.follower.nextIndex = response.Message.LastLogIndex
+		} else {
+			r.follower.nextIndex = r.follower.nextIndex - 1
+		}
 	}
 	logger.Infof("Node %s is behind the commit", response.ServerId)
 	if recordsLength > 1 {

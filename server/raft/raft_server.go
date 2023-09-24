@@ -281,7 +281,7 @@ func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) 
 	defer r.scheduleElection()
 	logger.Infof("Received append entries request %+v", req)
 	if req.Term < r.currentTerm {
-		return &AppendEntriesResponse{Term: r.currentTerm, Success: false}, nil
+		return &AppendEntriesResponse{Term: r.currentTerm, LastLogIndex: r.raftLog.HighestOffset(), Success: false}, nil
 	} else if req.Term >= r.currentTerm || r.votedFor != "" {
 		r.currentTerm = req.Term
 		r.changeState(newFollowerState(r))
@@ -290,7 +290,7 @@ func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) 
 	}
 
 	if len(req.Entries) > 0 && !r.matchEntry(req.PrevLogIndex, req.PrevLogTerm) {
-		return &AppendEntriesResponse{Term: r.currentTerm, Success: false}, nil
+		return &AppendEntriesResponse{Term: r.currentTerm, LastLogIndex: r.raftLog.HighestOffset(), Success: false}, nil
 	}
 	newEntriesLen := len(req.Entries)
 	currentLogIndex := r.raftLog.HighestOffset()
@@ -319,7 +319,7 @@ func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) 
 	if newEntriesLen > 0 || req.LeaderCommitIndex > r.commitIndex {
 		r.persistState()
 	}
-	return &AppendEntriesResponse{Term: r.currentTerm, Success: true}, nil
+	return &AppendEntriesResponse{Term: r.currentTerm, LastLogIndex: r.raftLog.HighestOffset(), Success: true}, nil
 }
 
 func (r *RaftServerImpl) matchEntry(prevLogIndex uint64, prevLogTerm uint32) bool {
