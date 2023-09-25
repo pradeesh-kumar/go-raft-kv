@@ -26,10 +26,11 @@ type RaftServerImpl struct {
 	nextIndex  map[ServerId]uint64 // for each server, index of next log entry to send to that server
 	matchIndex map[ServerId]uint64 // for each server, index of highest log entry known to be replicated on server
 
-	raftLog      RaftLog
-	transport    Transport
-	stateMachine StateMachine
-	stateStorage StateStorage
+	raftLog         RaftLog
+	transport       Transport
+	stateMachine    StateMachine
+	stateStorage    StateStorage
+	snapshotManager SnapshotManager
 
 	electionTimer *time.Timer
 	stopChannel   chan bool
@@ -55,6 +56,7 @@ func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, s
 		votedFor:         ServerId(persistedState.VotedFor),
 		lastAppliedIndex: persistedState.LastAppliedIndex,
 		commitIndex:      persistedState.CommittedIndex,
+		snapshotManager:  newFileBasedSnapshotManager(),
 		stopChannel:      make(chan bool),
 		rpcChan:          make(chan *RPC),
 		offerChan:        make(chan *OfferRequest, cfg.ReplicationBatchSize),
@@ -234,7 +236,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 		case *Record_SnapshotMetadataEntry:
 			r.stateMachine.Apply(stateMachineEntries)
 			stateMachineEntries = make([]*StateMachineEntry, 0)
-			err := r.stateMachine.TakeSnapshot()
+			err := r.takeSnapshot()
 			if err != nil {
 				logger.Errorf("Failed to take snapshot ", err)
 				r.lastAppliedIndex = log.Offset - 1
@@ -246,7 +248,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 			} else {
 				err := r.raftLog.Truncate(log.Offset - 1)
 				if err != nil {
-					logger.Errorf("failed to truncate logs ", err)
+					logger.Errorf("Failed to truncate logs ", err)
 				}
 			}
 		}
@@ -258,6 +260,17 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 	r.lastAppliedIndex = commitIndex
 	r.persistState()
 	return
+}
+
+func (r *RaftServerImpl) takeSnapshot() error {
+	snapshotWriter := r.snapshotManager.CreateWriter()
+	err := r.stateMachine.TakeSnapshot(snapshotWriter)
+	if err != nil {
+		logger.Errorf("failed to take snapshot! ", err)
+		return err
+	}
+	r.snapshotManager.Capture(snapshotWriter)
+	return nil
 }
 
 func (r *RaftServerImpl) updateLatestConfig(configEntry *ConfigEntry) {

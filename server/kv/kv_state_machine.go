@@ -1,6 +1,8 @@
 package kv
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/pradeesh-kumar/go-raft-kv/logger"
 	"github.com/pradeesh-kumar/go-raft-kv/raft"
 	"sync"
@@ -36,6 +38,15 @@ func (s *KVStateMachine) Apply(logs []*raft.StateMachineEntry) {
 			logger.Error("Unrecognized command ", cmd)
 		}
 	}
+}
+
+func (s *KVStateMachine) TakeSnapshot(snapshotWriter raft.SnapshotWriter) error {
+	serializedMap, err := json.Marshal(s.inMemMap)
+	if err != nil {
+		return fmt.Errorf("failed to take snapshot %s", err)
+	}
+	snapshotWriter.WriteBytes(serializedMap)
+	return nil
 }
 
 func (s *KVStateMachine) Get(key string) string {

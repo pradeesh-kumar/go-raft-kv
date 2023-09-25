@@ -23,9 +23,18 @@ type RaftState interface {
 	stop()
 }
 
+type SnapshotManager interface {
+	CreateWriter() SnapshotWriter
+	Capture(writer SnapshotWriter)
+}
+
+type SnapshotWriter interface {
+	WriteBytes(data []byte)
+}
+
 type StateMachine interface {
-	Apply(log []*StateMachineEntry)
-	TakeSnapshot() error
+	Apply([]*StateMachineEntry)
+	TakeSnapshot(SnapshotWriter) error
 	Close()
 }
 
