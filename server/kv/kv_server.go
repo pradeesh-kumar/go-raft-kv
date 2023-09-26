@@ -26,7 +26,7 @@ func NewKVServer(kvConfig *KVConfig) *KVServer {
 	baseDir := path.Join(kvConfig.BaseDirectory, string(kvConfig.RaftConfig.ServerId))
 	err := os.MkdirAll(baseDir, 0755)
 	if err != nil {
-		logger.Fatal("Error while creating base directory", err)
+		logger.Fatal("Failed to create base directory", err)
 	}
 	transport.RegisterClientService(&ClientProtocolService_ServiceDesc, kvServer)
 	kvServer.stateMachine = newKVStateMachine()

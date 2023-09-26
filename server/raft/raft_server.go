@@ -4,6 +4,7 @@ import (
 	"github.com/pradeesh-kumar/go-raft-kv/logger"
 	"math"
 	"math/rand"
+	"path"
 	"time"
 )
 
@@ -30,7 +31,7 @@ type RaftServerImpl struct {
 	transport       Transport
 	stateMachine    StateMachine
 	stateStorage    StateStorage
-	snapshotManager SnapshotManager
+	snapshotManager *SnapshotManager
 
 	electionTimer *time.Timer
 	stopChannel   chan bool
@@ -44,6 +45,7 @@ func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, s
 	if err != nil {
 		logger.Fatal("Failed to retrieve persisted state: ", err)
 	}
+	snapshotDir := path.Join(cfg.BaseDirectory, string(cfg.ServerId), "snapshots")
 	raftServer := &RaftServerImpl{
 		config:           &cfg,
 		serverId:         cfg.ServerId,
@@ -56,7 +58,7 @@ func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, s
 		votedFor:         ServerId(persistedState.VotedFor),
 		lastAppliedIndex: persistedState.LastAppliedIndex,
 		commitIndex:      persistedState.CommittedIndex,
-		snapshotManager:  newFileBasedSnapshotManager(),
+		snapshotManager:  newSnapshotManager(snapshotDir),
 		stopChannel:      make(chan bool),
 		rpcChan:          make(chan *RPC),
 		offerChan:        make(chan *OfferRequest, cfg.ReplicationBatchSize),
@@ -236,7 +238,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 		case *Record_SnapshotMetadataEntry:
 			r.stateMachine.Apply(stateMachineEntries)
 			stateMachineEntries = make([]*StateMachineEntry, 0)
-			err := r.takeSnapshot()
+			err := r.takeSnapshot(log.Term, log.Offset)
 			if err != nil {
 				logger.Errorf("Failed to take snapshot ", err)
 				r.lastAppliedIndex = log.Offset - 1
@@ -262,9 +264,12 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 	return
 }
 
-func (r *RaftServerImpl) takeSnapshot() error {
-	snapshotWriter := r.snapshotManager.CreateWriter()
-	err := r.stateMachine.TakeSnapshot(snapshotWriter)
+func (r *RaftServerImpl) takeSnapshot(term uint32, index uint64) error {
+	snapshotWriter, err := r.snapshotManager.CreateWriter(term, index)
+	if err != nil {
+		return err
+	}
+	err = r.stateMachine.TakeSnapshot(snapshotWriter)
 	if err != nil {
 		logger.Errorf("failed to take snapshot! ", err)
 		return err
