@@ -10,6 +10,7 @@ const (
 	defaultChanBuffer                   = 1000
 	membershipMaxRounds                 = 5
 	leadershipTransferLogCatchupTimeout = time.Duration(4000) * time.Millisecond
+	logsPerSnapshot                     = 1000
 )
 
 type LeaderState struct {
@@ -258,8 +259,28 @@ func (s *LeaderState) updateCommitIndex() {
 	majorityCommitIndex := followersMatchIndex[quorumMajority-1]
 	if majorityCommitIndex > s.raftServer.commitIndex {
 		s.raftServer.commitIndex = majorityCommitIndex
+		if majorityCommitIndex%logsPerSnapshot == 0 {
+			s.appendSnapshotEntry(majorityCommitIndex)
+		}
 		s.raftServer.persistState()
 		s.applySignalCh <- true
+	}
+}
+
+func (s *LeaderState) appendSnapshotEntry(commitIndex uint64) {
+	record := &Record{
+		Term: s.raftServer.currentTerm,
+		LogEntryBody: &Record_SnapshotMetadataEntry{
+			SnapshotMetadataEntry: &SnapshotMetadataEntry{
+				CommitIndex: commitIndex,
+			},
+		},
+	}
+	index, err := s.raftServer.raftLog.Append(record)
+	if err != nil {
+		logger.Errorf("Failed to create snapshot entry ", err)
+	} else {
+		logger.Infof("Snapshot entry created at index %d", index)
 	}
 }
 
