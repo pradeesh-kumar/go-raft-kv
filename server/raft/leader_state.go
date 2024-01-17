@@ -92,9 +92,20 @@ func (s *LeaderState) handleRPC(rpc *RPC) {
 		go rpc.reply.Set(s.removeServer(cmd))
 	case []*OfferRequest:
 		s.offerCommand(cmd)
+	case *InstallSnapshotRequest:
+		rpc.reply.Set(s.handleInstallSnapshotRequest(cmd))
 	default:
 		rpc.reply.Set(nil, ErrUnknownCommand)
 	}
+}
+
+func (s *LeaderState) handleInstallSnapshotRequest(req *InstallSnapshotRequest) (*InstallSnapshotResponse, error) {
+	// Step out if the leader is stale
+	if req.Term > s.raftServer.currentTerm {
+		logger.Infof("Leader stepping down since node %s has greater term %d than the current node term %d", req.LeaderId, req.Term, s.raftServer.currentTerm)
+		s.stepDown()
+	}
+	return &InstallSnapshotResponse{Term: s.raftServer.currentTerm}, nil
 }
 
 func (s *LeaderState) appendConfigEntry(configEntry *ConfigEntry) (uint64, error) {

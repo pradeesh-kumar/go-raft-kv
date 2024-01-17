@@ -27,11 +27,12 @@ type RaftServerImpl struct {
 	nextIndex  map[ServerId]uint64 // for each server, index of next log entry to send to that server
 	matchIndex map[ServerId]uint64 // for each server, index of highest log entry known to be replicated on server
 
-	raftLog         RaftLog
-	transport       Transport
-	stateMachine    StateMachine
-	stateStorage    StateStorage
-	snapshotManager *SnapshotManager
+	raftLog               RaftLog
+	transport             Transport
+	stateMachine          StateMachine
+	stateStorage          StateStorage
+	snapshotManager       *SnapshotManager
+	currentSnapshotWriter SnapshotWriter
 
 	electionTimer *time.Timer
 	stopChannel   chan bool
@@ -238,7 +239,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 		case *Record_SnapshotMetadataEntry:
 			r.stateMachine.Apply(stateMachineEntries)
 			stateMachineEntries = make([]*StateMachineEntry, 0)
-			err := r.takeSnapshot(log.Term, log.Offset)
+			err := r.captureSnapshot(log.Term, log.Offset)
 			if err != nil {
 				logger.Errorf("Failed to take snapshot ", err)
 				r.lastAppliedIndex = log.Offset - 1
@@ -250,7 +251,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 			} else {
 				err := r.raftLog.Truncate(log.Offset - 1)
 				if err != nil {
-					logger.Errorf("Failed to truncate logs ", err)
+					logger.Error("Failed to truncate logs ", err)
 				}
 			}
 		}
@@ -264,17 +265,17 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 	return
 }
 
-func (r *RaftServerImpl) takeSnapshot(term uint32, index uint64) error {
+func (r *RaftServerImpl) captureSnapshot(term uint32, index uint64) error {
 	snapshotWriter, err := r.snapshotManager.CreateWriter(term, index)
 	if err != nil {
 		return err
 	}
-	err = r.stateMachine.TakeSnapshot(snapshotWriter)
+	err = r.stateMachine.CaptureSnapshot(snapshotWriter)
 	if err != nil {
-		logger.Errorf("failed to take snapshot! ", err)
+		logger.Errorf("failed to capture snapshot! ", err)
 		return err
 	}
-	r.snapshotManager.Capture(snapshotWriter)
+	r.snapshotManager.Close(snapshotWriter)
 	return nil
 }
 
@@ -312,10 +313,47 @@ func (r *RaftServerImpl) processVoteRequest(req *VoteRequest) (*VoteResponse, er
 	return &VoteResponse{Term: r.currentTerm, VoteGranted: voteGranted}, nil
 }
 
+func (r *RaftServerImpl) processInstallSnapshotRequest(req *InstallSnapshotRequest) (*InstallSnapshotResponse, error) {
+	r.stopElection()
+	defer r.scheduleElection()
+	logger.Infof("Received install snapshot request from %s", req.LeaderId)
+	if req.Term < r.currentTerm {
+		return &InstallSnapshotResponse{Term: r.currentTerm}, nil
+	} else if req.Term > r.currentTerm {
+		r.currentTerm = req.Term
+	}
+	if r.currentSnapshotWriter == nil {
+		r.currentSnapshotWriter, _ = r.snapshotManager.CreateWriter(req.Term, req.LastLogIndex)
+	}
+	err := r.currentSnapshotWriter.Write(req.Value)
+	if err != nil {
+		logger.Error("Error while writing the snapshot: ", err)
+	}
+	if req.Done {
+		r.snapshotManager.Close(r.currentSnapshotWriter)
+		r.commitIndex = req.LastLogIndex
+		r.lastAppliedIndex = req.LastLogIndex
+		err := r.raftLog.Truncate(req.LastLogIndex)
+		if err != nil {
+			logger.Error("Error while truncating the logs: ", err)
+		}
+		r.persistState()
+		snapshotReader, err := r.snapshotManager.GetSnapshot(req.Term, req.LastLogIndex)
+		if err != nil {
+			logger.Errorf("failed to read the snapshot for the term %d lastLogIndex %d: %s", req.Term, req.LastLogIndex, err)
+		}
+		err = r.stateMachine.ResetFromSnapshot(snapshotReader)
+		if err != nil {
+			logger.Error("failed to reset the statemachine", err)
+		}
+	}
+	return &InstallSnapshotResponse{Term: r.currentTerm}, nil
+}
+
 func (r *RaftServerImpl) processAppendEntriesRequest(req *AppendEntriesRequest) (*AppendEntriesResponse, error) {
 	r.stopElection()
 	defer r.scheduleElection()
-	logger.Infof("Received append entries request %+v", req)
+	logger.Infof("Received append entries request from %s", req.LeaderId)
 	if req.Term < r.currentTerm {
 		return &AppendEntriesResponse{Term: r.currentTerm, LastLogIndex: r.raftLog.HighestOffset(), Success: false}, nil
 	} else if req.Term >= r.currentTerm || r.votedFor != "" {

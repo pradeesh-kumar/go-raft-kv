@@ -90,6 +90,7 @@ func (r *DefaultReplicator) followerInfo() *Follower {
 	return r.follower
 }
 
+// TODO implement sending snapshots
 func (r *DefaultReplicator) sendHeartbeat() {
 	if r.busy {
 		return
@@ -108,7 +109,7 @@ func (r *DefaultReplicator) sendHeartbeat() {
 	var records []*Record
 	records, err := r.raftServer.raftLog.ReadBatchSince(r.follower.nextIndex, r.batchSize)
 	if err != nil {
-		logger.Errorf("Error while retrieving records to send append-entries", err)
+		logger.Error("Error while retrieving records to send append-entries ", err)
 		r.scheduleHeartbeat()
 		return
 	}
@@ -123,7 +124,7 @@ func (r *DefaultReplicator) sendHeartbeat() {
 	reqPayload := NewPayload[*AppendEntriesRequest](r.follower.id, r.follower.address, appendEntryReq)
 	response, err := r.transport.SendAppendEntries(reqPayload)
 	if err != nil {
-		logger.Errorf("Failed to send append entries to the node %d", r.follower.id, err)
+		logger.Errorf("Failed to send append entries to the node %s: %s", r.follower.id, err)
 		return
 	}
 	if !r.running {

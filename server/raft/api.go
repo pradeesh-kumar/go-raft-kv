@@ -24,12 +24,18 @@ type RaftState interface {
 }
 
 type SnapshotWriter interface {
-	WriteBytes(data []byte) error
+	Write(data []byte) error
+	WriteAt(data []byte, offset int64) error
+}
+
+type SnapshotReader interface {
+	ReadAll() ([]byte, error)
 }
 
 type StateMachine interface {
 	Apply([]*StateMachineEntry)
-	TakeSnapshot(SnapshotWriter) error
+	CaptureSnapshot(SnapshotWriter) error
+	ResetFromSnapshot(SnapshotReader) error
 	Close()
 }
 

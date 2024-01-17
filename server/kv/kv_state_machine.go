@@ -40,12 +40,16 @@ func (s *KVStateMachine) Apply(logs []*raft.StateMachineEntry) {
 	}
 }
 
-func (s *KVStateMachine) TakeSnapshot(snapshotWriter raft.SnapshotWriter) error {
+func (s *KVStateMachine) CaptureSnapshot(snapshotWriter raft.SnapshotWriter) error {
 	serializedMap, err := json.Marshal(s.inMemMap)
 	if err != nil {
 		return fmt.Errorf("failed to take snapshot %s", err)
 	}
-	snapshotWriter.WriteBytes(serializedMap)
+	return snapshotWriter.Write(serializedMap)
+}
+
+func (s *KVStateMachine) ResetFromSnapshot(reader raft.SnapshotReader) error {
+	// TODO implement this
 	return nil
 }
 

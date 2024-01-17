@@ -25,6 +25,7 @@ const (
 	RaftProtocolService_TimeoutNow_FullMethodName         = "/raft.RaftProtocolService/TimeoutNow"
 	RaftProtocolService_AddServer_FullMethodName          = "/raft.RaftProtocolService/AddServer"
 	RaftProtocolService_RemoveServer_FullMethodName       = "/raft.RaftProtocolService/RemoveServer"
+	RaftProtocolService_InstallSnapshot_FullMethodName    = "/raft.RaftProtocolService/InstallSnapshot"
 )
 
 // RaftProtocolServiceClient is the client API for RaftProtocolService service.
@@ -40,6 +41,8 @@ type RaftProtocolServiceClient interface {
 	// Cluster Membership Change
 	AddServer(ctx context.Context, in *AddServerRequest, opts ...grpc.CallOption) (*AddServerResponse, error)
 	RemoveServer(ctx context.Context, in *RemoveServerRequest, opts ...grpc.CallOption) (*RemoveServerResponse, error)
+	// Snapshot
+	InstallSnapshot(ctx context.Context, in *InstallSnapshotRequest, opts ...grpc.CallOption) (*InstallSnapshotResponse, error)
 }
 
 type raftProtocolServiceClient struct {
@@ -104,6 +107,15 @@ func (c *raftProtocolServiceClient) RemoveServer(ctx context.Context, in *Remove
 	return out, nil
 }
 
+func (c *raftProtocolServiceClient) InstallSnapshot(ctx context.Context, in *InstallSnapshotRequest, opts ...grpc.CallOption) (*InstallSnapshotResponse, error) {
+	out := new(InstallSnapshotResponse)
+	err := c.cc.Invoke(ctx, RaftProtocolService_InstallSnapshot_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RaftProtocolServiceServer is the server API for RaftProtocolService service.
 // All implementations must embed UnimplementedRaftProtocolServiceServer
 // for forward compatibility
@@ -117,6 +129,8 @@ type RaftProtocolServiceServer interface {
 	// Cluster Membership Change
 	AddServer(context.Context, *AddServerRequest) (*AddServerResponse, error)
 	RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error)
+	// Snapshot
+	InstallSnapshot(context.Context, *InstallSnapshotRequest) (*InstallSnapshotResponse, error)
 	mustEmbedUnimplementedRaftProtocolServiceServer()
 }
 
@@ -141,6 +155,9 @@ func (UnimplementedRaftProtocolServiceServer) AddServer(context.Context, *AddSer
 }
 func (UnimplementedRaftProtocolServiceServer) RemoveServer(context.Context, *RemoveServerRequest) (*RemoveServerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveServer not implemented")
+}
+func (UnimplementedRaftProtocolServiceServer) InstallSnapshot(context.Context, *InstallSnapshotRequest) (*InstallSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InstallSnapshot not implemented")
 }
 func (UnimplementedRaftProtocolServiceServer) mustEmbedUnimplementedRaftProtocolServiceServer() {}
 
@@ -263,6 +280,24 @@ func _RaftProtocolService_RemoveServer_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RaftProtocolService_InstallSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InstallSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RaftProtocolServiceServer).InstallSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RaftProtocolService_InstallSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RaftProtocolServiceServer).InstallSnapshot(ctx, req.(*InstallSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RaftProtocolService_ServiceDesc is the grpc.ServiceDesc for RaftProtocolService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -293,6 +328,10 @@ var RaftProtocolService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveServer",
 			Handler:    _RaftProtocolService_RemoveServer_Handler,
+		},
+		{
+			MethodName: "InstallSnapshot",
+			Handler:    _RaftProtocolService_InstallSnapshot_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

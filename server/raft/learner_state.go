@@ -1,11 +1,14 @@
 package raft
 
+import "os"
+
 type LearnerState struct {
-	raftServer *RaftServerImpl
+	raftServer          *RaftServerImpl
+	currentSnapshotFile *os.File
 }
 
 func newLearnerState(r *RaftServerImpl) RaftState {
-	return &LearnerState{r}
+	return &LearnerState{raftServer: r, currentSnapshotFile: nil}
 }
 
 func (s *LearnerState) start() {
@@ -37,6 +40,8 @@ func (s *LearnerState) handleRPC(rpc *RPC) {
 		rpc.reply.Set(&RemoveServerResponse{Status: ResponseStatus_NotLeader, LeaderId: string(s.raftServer.currentLeader)}, nil)
 	case []*OfferRequest:
 		s.offerCommand(cmd)
+	case *InstallSnapshotRequest:
+		rpc.reply.Set(s.raftServer.processInstallSnapshotRequest(cmd))
 	default:
 		rpc.reply.Set(nil, ErrUnknownCommand)
 	}

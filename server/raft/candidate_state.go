@@ -36,6 +36,12 @@ func (s *CandidateState) handleRPC(rpc *RPC) {
 		rpc.reply.Set(&RemoveServerResponse{Status: ResponseStatus_NotLeader, LeaderId: string(s.raftServer.currentLeader)}, nil)
 	case []*OfferRequest:
 		s.offerCommand(cmd)
+	case *InstallSnapshotRequest:
+		if cmd.Term > s.raftServer.currentTerm {
+			s.raftServer.changeState(newFollowerState(s.raftServer))
+		} else {
+			rpc.reply.Set(&InstallSnapshotResponse{Term: s.raftServer.currentTerm}, nil)
+		}
 	default:
 		rpc.reply.Set(nil, ErrUnknownCommand)
 	}

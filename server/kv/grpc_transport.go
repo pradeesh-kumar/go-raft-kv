@@ -88,6 +88,10 @@ func (t *GrpcTransport) RemoveServer(c context.Context, req *raft.RemoveServerRe
 	return dispatch[*raft.RemoveServerRequest, raft.RemoveServerResponse](t, req)
 }
 
+func (t *GrpcTransport) InstallSnapshot(c context.Context, req *raft.InstallSnapshotRequest) (*raft.InstallSnapshotResponse, error) {
+	return dispatch[*raft.InstallSnapshotRequest, raft.InstallSnapshotResponse](t, req)
+}
+
 func (t *GrpcTransport) SendTimeoutRequest(req raft.Payload[*raft.TimeoutNowRequest]) (raft.Payload[*raft.TimeoutNowResponse], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), t.broadcastTimeout)
 	defer cancel()

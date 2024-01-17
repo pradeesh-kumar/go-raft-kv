@@ -124,6 +124,21 @@ message PersistentState {
   string VotedFor = 4;
 }
 
+message InstallSnapshotRequest {
+  uint32 term = 1;
+  string leaderId = 2;
+  uint64 lastLogIndex = 3;
+  uint32 lastLogTerm = 4;
+  uint64 lastConfig = 5;
+  uint64 offset = 6;
+  bytes value = 7;
+  bool done = 8;
+}
+
+message InstallSnapshotResponse {
+  uint32 term = 1;
+}
+
 service RaftProtocolService {
   // Election and Log Replication
   rpc RequestVote(VoteRequest) returns (VoteResponse) {}
@@ -136,4 +151,7 @@ service RaftProtocolService {
   // Cluster Membership Change
   rpc AddServer(AddServerRequest) returns (AddServerResponse) {}
   rpc RemoveServer(RemoveServerRequest) returns (RemoveServerResponse) {}
+
+  // Snapshot
+  rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse) {}
 }
