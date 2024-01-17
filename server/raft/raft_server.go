@@ -1,9 +1,11 @@
 package raft
 
 import (
+	"errors"
 	"github.com/pradeesh-kumar/go-raft-kv/logger"
 	"math"
 	"math/rand"
+	"os"
 	"path"
 	"time"
 )
@@ -31,7 +33,7 @@ type RaftServerImpl struct {
 	transport             Transport
 	stateMachine          StateMachine
 	stateStorage          StateStorage
-	snapshotManager       *SnapshotManager
+	snapshotManager       SnapshotManager
 	currentSnapshotWriter SnapshotWriter
 
 	electionTimer *time.Timer
@@ -41,7 +43,7 @@ type RaftServerImpl struct {
 	offerChan     chan *OfferRequest
 }
 
-func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, sm StateMachine, t Transport) *RaftServerImpl {
+func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, stateMachine StateMachine, t Transport) *RaftServerImpl {
 	persistedState, err := stateStorage.Retrieve()
 	if err != nil {
 		logger.Fatal("Failed to retrieve persisted state: ", err)
@@ -52,14 +54,14 @@ func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, s
 		serverId:         cfg.ServerId,
 		raftLog:          raftLog,
 		stateStorage:     stateStorage,
-		stateMachine:     sm,
+		stateMachine:     stateMachine,
 		transport:        t,
 		electionTimer:    time.NewTimer(largeFuture),
 		currentTerm:      persistedState.CurrentTerm,
 		votedFor:         ServerId(persistedState.VotedFor),
 		lastAppliedIndex: persistedState.LastAppliedIndex,
 		commitIndex:      persistedState.CommittedIndex,
-		snapshotManager:  newSnapshotManager(snapshotDir),
+		snapshotManager:  newFileBasedSnapshotManager(snapshotDir),
 		stopChannel:      make(chan bool),
 		rpcChan:          make(chan *RPC),
 		offerChan:        make(chan *OfferRequest, cfg.ReplicationBatchSize),
@@ -74,7 +76,24 @@ func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, s
 		}
 		raftServer.lastLogTerm = record.Term
 	}
+	restoreSnapshot(raftServer.snapshotManager, raftServer.stateMachine)
 	return raftServer
+}
+
+func restoreSnapshot(snapshotManager SnapshotManager, stateMachine StateMachine) {
+	snapshot, err := snapshotManager.GetLatestSnapshot()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			logger.Info("no snapshots available in the system")
+		} else {
+			logger.Fatal("failed to read the latest snapshot", err)
+		}
+		return
+	}
+	err = stateMachine.ResetFromSnapshot(snapshot)
+	if err != nil {
+		logger.Fatal("failed to restore the statemachine with the latest snapshot", err)
+	}
 }
 
 func (r *RaftServerImpl) Start() {
@@ -241,7 +260,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 			stateMachineEntries = make([]*StateMachineEntry, 0)
 			err := r.captureSnapshot(log.Term, log.Offset)
 			if err != nil {
-				logger.Errorf("Failed to take snapshot ", err)
+				logger.Error("failed to take snapshot ", err)
 				r.lastAppliedIndex = log.Offset - 1
 				r.persistState()
 				if configEntry != nil {
@@ -272,10 +291,10 @@ func (r *RaftServerImpl) captureSnapshot(term uint32, index uint64) error {
 	}
 	err = r.stateMachine.CaptureSnapshot(snapshotWriter)
 	if err != nil {
-		logger.Errorf("failed to capture snapshot! ", err)
+		logger.Error("failed to capture snapshot! ", err)
 		return err
 	}
-	r.snapshotManager.Close(snapshotWriter)
+	snapshotWriter.Close()
 	return nil
 }
 
@@ -330,7 +349,7 @@ func (r *RaftServerImpl) processInstallSnapshotRequest(req *InstallSnapshotReque
 		logger.Error("Error while writing the snapshot: ", err)
 	}
 	if req.Done {
-		r.snapshotManager.Close(r.currentSnapshotWriter)
+		r.currentSnapshotWriter.Close()
 		r.commitIndex = req.LastLogIndex
 		r.lastAppliedIndex = req.LastLogIndex
 		err := r.raftLog.Truncate(req.LastLogIndex)
