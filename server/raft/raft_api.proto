@@ -108,6 +108,8 @@ message ConfigEntry {
 
 message SnapshotMetadataEntry {
   uint64 commitIndex = 1;
+  uint32 commitLogTerm = 2;
+  uint64 lastConfigIndex = 3;
 }
 
 enum State {

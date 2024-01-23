@@ -110,6 +110,24 @@ func (t *GrpcTransport) SendTimeoutRequest(req raft.Payload[*raft.TimeoutNowRequ
 	}
 }
 
+func (t *GrpcTransport) SendInstallSnapshot(req raft.Payload[*raft.InstallSnapshotRequest]) (raft.Payload[*raft.InstallSnapshotResponse], error) {
+	ctx, cancel := context.WithTimeout(context.Background(), t.broadcastTimeout)
+	defer cancel()
+	var client raft.RaftProtocolServiceClient
+	if _, ok := t.nodeClientMap[req.ServerId]; !ok {
+		client = createClient(req.ServerAddress)
+		t.nodeClientMap[req.ServerId] = &client
+	}
+	client = *t.nodeClientMap[req.ServerId]
+	resPayload := raft.NewPayload[*raft.InstallSnapshotResponse](req.ServerId, req.ServerAddress, nil)
+	if res, err := client.InstallSnapshot(ctx, req.Message); err != nil {
+		return resPayload, err
+	} else {
+		resPayload.Message = res
+		return resPayload, nil
+	}
+}
+
 func (t *GrpcTransport) SendAppendEntries(req raft.Payload[*raft.AppendEntriesRequest]) (raft.Payload[*raft.AppendEntriesResponse], error) {
 	ctx, cancel := context.WithTimeout(context.Background(), t.broadcastTimeout)
 	defer cancel()

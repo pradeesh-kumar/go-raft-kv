@@ -71,6 +71,7 @@ type Transport interface {
 	Stop()
 	BroadcastVote(BroadcastRequest[*VoteRequest]) BroadcastResponse[*VoteResponse]
 	SendAppendEntries(Payload[*AppendEntriesRequest]) (Payload[*AppendEntriesResponse], error)
+	SendInstallSnapshot(Payload[*InstallSnapshotRequest]) (Payload[*InstallSnapshotResponse], error)
 	SendTimeoutRequest(Payload[*TimeoutNowRequest]) (Payload[*TimeoutNowResponse], error)
 }
 

@@ -49,8 +49,12 @@ func (s *KVStateMachine) CaptureSnapshot(snapshotWriter raft.SnapshotWriter) err
 }
 
 func (s *KVStateMachine) ResetFromSnapshot(reader raft.SnapshotReader) error {
-	// TODO implement this
-	return nil
+	serializedMap, err := reader.ReadAll()
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(serializedMap, &s.inMemMap)
+	return err
 }
 
 func (s *KVStateMachine) Get(key string) string {

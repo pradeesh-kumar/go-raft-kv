@@ -244,7 +244,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 	}
 	logs, err = r.raftLog.ReadBatchSince(offset, batchSize)
 	if err != nil {
-		logger.Errorf("Failed to retrieve the logs for apply. From index: %d, batchSize: %d", offset, batchSize, err)
+		logger.Errorf("Failed to retrieve the logs for apply. From index: %d, batchSize: %d: %s", offset, batchSize, err)
 		return
 	}
 	var stateMachineEntries []*StateMachineEntry
@@ -258,7 +258,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 		case *Record_SnapshotMetadataEntry:
 			r.stateMachine.Apply(stateMachineEntries)
 			stateMachineEntries = make([]*StateMachineEntry, 0)
-			err := r.captureSnapshot(log.Term, log.Offset)
+			err := r.captureSnapshot(entry.SnapshotMetadataEntry.CommitLogTerm, entry.SnapshotMetadataEntry.CommitIndex)
 			if err != nil {
 				logger.Error("failed to take snapshot ", err)
 				r.lastAppliedIndex = log.Offset - 1
@@ -270,7 +270,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 			} else {
 				err := r.raftLog.Truncate(log.Offset - 1)
 				if err != nil {
-					logger.Error("Failed to truncate logs ", err)
+					logger.Error("failed to truncate logs ", err)
 				}
 			}
 		}
@@ -305,6 +305,7 @@ func (r *RaftServerImpl) updateLatestConfig(configEntry *ConfigEntry) {
 		serverAddress := ServerAddress(nodeInfo.Address)
 		r.config.Nodes[serverId] = serverAddress
 	}
+	// The learner must become a follower if its id present in the config entry.
 	if _, ok := r.config.Nodes[r.serverId]; !ok && r.state.name() == State_Learner {
 		r.changeState(newFollowerState(r))
 	}

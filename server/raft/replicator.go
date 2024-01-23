@@ -90,7 +90,6 @@ func (r *DefaultReplicator) followerInfo() *Follower {
 	return r.follower
 }
 
-// TODO implement sending snapshots
 func (r *DefaultReplicator) sendHeartbeat() {
 	if r.busy {
 		return
@@ -113,6 +112,14 @@ func (r *DefaultReplicator) sendHeartbeat() {
 		r.scheduleHeartbeat()
 		return
 	}
+	if containsSnapshotEntry(records) {
+		r.sendSnapshot(records[0].LogEntryBody.(*Record_SnapshotMetadataEntry).SnapshotMetadataEntry)
+	} else {
+		r.sendLogs(records, prevLogIndex, prevLogTerm)
+	}
+}
+
+func (r *DefaultReplicator) sendLogs(records []*Record, prevLogIndex uint64, prevLogTerm uint32) {
 	appendEntryReq := &AppendEntriesRequest{
 		Term:              r.raftServer.currentTerm,
 		LeaderId:          string(r.raftServer.currentLeader),
@@ -131,28 +138,76 @@ func (r *DefaultReplicator) sendHeartbeat() {
 		return
 	}
 	recordsLength := len(records)
+	if response.Message.Term > r.raftServer.currentTerm {
+		logger.Infof("Leader stepping down since node %s has greater term %d than the current node term %d", response.ServerId, response.Message.Term, r.raftServer.currentTerm)
+		r.raftServer.currentTerm = response.Message.Term
+		r.leaderState.stepDown()
+		return
+	}
 	if response.Message.Success {
 		r.follower.nextIndex = r.follower.nextIndex + uint64(recordsLength)
 		r.follower.matchIndex = r.follower.nextIndex - 1
-		logger.Infof("Appended the %d entries to the node %d", recordsLength, r.follower.id)
+		logger.Infof("Appended the %d entries to the node %s", recordsLength, r.follower.id)
 		r.followerAppendSuccessCh <- true
+	} else {
+		if response.Message.LastLogIndex < r.follower.nextIndex {
+			r.follower.nextIndex = response.Message.LastLogIndex
+		} else {
+			r.follower.nextIndex = r.follower.nextIndex - 1
+		}
+		logger.Infof("Node %s is behind the commit", response.ServerId)
+	}
+	if recordsLength > 1 {
+		r.scheduleImmediateNext()
+	} else {
+		r.scheduleHeartbeat()
+	}
+}
+
+func (r *DefaultReplicator) sendSnapshot(snapshotMetadata *SnapshotMetadataEntry) {
+	snapshot, err := r.raftServer.snapshotManager.GetLatestSnapshot()
+	if err != nil {
+		logger.Error("Failed to retrieve the latest snapshot: ", err)
+	}
+	bytes, err := snapshot.ReadAll()
+	if err != nil {
+		logger.Error("Failed to read the latest snapshot: ", err)
+	}
+	installSnapshotReq := &InstallSnapshotRequest{
+		Term:         r.raftServer.currentTerm,
+		LeaderId:     string(r.raftServer.currentLeader),
+		LastLogIndex: snapshotMetadata.CommitIndex,
+		LastLogTerm:  snapshotMetadata.CommitLogTerm,
+		LastConfig:   snapshotMetadata.LastConfigIndex,
+		Offset:       0,
+		Value:        bytes,
+		Done:         true,
+	}
+	reqPayload := NewPayload[*InstallSnapshotRequest](r.follower.id, r.follower.address, installSnapshotReq)
+	response, err := r.transport.SendInstallSnapshot(reqPayload)
+	if err != nil {
+		logger.Errorf("Failed to send snapshot entry to the node %s: %s", r.follower.id, err)
+		return
+	}
+	if !r.running {
+		return
 	}
 	if response.Message.Term > r.raftServer.currentTerm {
 		logger.Infof("Leader stepping down since node %s has greater term %d than the current node term %d", response.ServerId, response.Message.Term, r.raftServer.currentTerm)
 		r.raftServer.currentTerm = response.Message.Term
 		r.leaderState.stepDown()
 		return
-	} else if !response.Message.Success {
-		if response.Message.LastLogIndex < r.follower.nextIndex {
-			r.follower.nextIndex = response.Message.LastLogIndex
-		} else {
-			r.follower.nextIndex = r.follower.nextIndex - 1
-		}
 	}
-	logger.Infof("Node %s is behind the commit", response.ServerId)
-	if recordsLength > 1 {
-		r.scheduleImmediateNext()
-	} else {
-		r.scheduleHeartbeat()
+	r.follower.nextIndex = snapshotMetadata.CommitIndex + 1
+	r.follower.matchIndex = snapshotMetadata.CommitIndex
+	logger.Infof("Successfully sent the snapshot %+v to the node %s", snapshotMetadata, r.follower.id)
+	r.scheduleHeartbeat()
+}
+
+func containsSnapshotEntry(records []*Record) bool {
+	if len(records) > 0 {
+		_, ok := records[0].LogEntryBody.(*Record_SnapshotMetadataEntry)
+		return ok
 	}
+	return false
 }

@@ -279,17 +279,23 @@ func (s *LeaderState) updateCommitIndex() {
 }
 
 func (s *LeaderState) appendSnapshotEntry(commitIndex uint64) {
+	recordAtCommitIndex, err := s.raftServer.raftLog.Read(commitIndex)
+	if err != nil {
+		logger.Errorf("failed to read the log at commit index %d", commitIndex)
+	}
 	record := &Record{
 		Term: s.raftServer.currentTerm,
 		LogEntryBody: &Record_SnapshotMetadataEntry{
 			SnapshotMetadataEntry: &SnapshotMetadataEntry{
-				CommitIndex: commitIndex,
+				CommitIndex:     commitIndex,
+				CommitLogTerm:   recordAtCommitIndex.Term,
+				LastConfigIndex: 0, // TODO add the last config index
 			},
 		},
 	}
 	index, err := s.raftServer.raftLog.Append(record)
 	if err != nil {
-		logger.Errorf("Failed to create snapshot entry ", err)
+		logger.Error("failed to create snapshot entry ", err)
 	} else {
 		logger.Infof("Snapshot entry created at index %d", index)
 	}
@@ -336,7 +342,7 @@ func (s *LeaderState) offerCommand(requests []*OfferRequest) {
 		}
 		id, err := s.raftServer.raftLog.Append(r)
 		if err != nil {
-			logger.Errorf("Failed to append the new record %+v", r, err)
+			logger.Errorf("failed to append the new record %+v: %s", r, err)
 			offerReq.reply.Set(nil, err)
 		} else {
 			s.pendingRequests[id] = offerReq.reply
