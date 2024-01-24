@@ -24,19 +24,24 @@ type RaftState interface {
 }
 
 type SnapshotManager interface {
-	CreateWriter(term uint32, logIndex uint64) (SnapshotWriter, error)
-	GetSnapshot(term uint32, logIndex uint64) (SnapshotReader, error)
-	GetLatestSnapshot() (SnapshotReader, error)
+	CreateWriter(term uint32, logIndex uint64, configEntry *ConfigEntry) (SnapshotWriter, error)
+	GetSnapshot(term uint32, logIndex uint64) (*Snapshot, error)
+	GetLatestSnapshot() (*Snapshot, error)
+}
+
+type Snapshot struct {
+	configEntry *ConfigEntry
+	SnapshotReader
 }
 
 type SnapshotWriter interface {
-	Write(data []byte) error
-	WriteAt(data []byte, offset int64) error
-	Close()
+	Write(data []byte) (int, error)
+	Close() error
 }
 
 type SnapshotReader interface {
-	ReadAll() ([]byte, error)
+	Read([]byte) (int, error)
+	Close() error
 }
 
 type StateMachine interface {

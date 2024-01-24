@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/pradeesh-kumar/go-raft-kv/logger"
 	"github.com/pradeesh-kumar/go-raft-kv/raft"
+	"io"
 	"sync"
 	"time"
 )
@@ -45,16 +46,24 @@ func (s *KVStateMachine) CaptureSnapshot(snapshotWriter raft.SnapshotWriter) err
 	if err != nil {
 		return fmt.Errorf("failed to take snapshot %s", err)
 	}
-	return snapshotWriter.Write(serializedMap)
+	_, err = snapshotWriter.Write(serializedMap)
+	return err
 }
 
 func (s *KVStateMachine) ResetFromSnapshot(reader raft.SnapshotReader) error {
-	serializedMap, err := reader.ReadAll()
-	if err != nil {
-		return err
+	bytes := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := reader.Read(buf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read the snapshot %s", err)
+		}
+		bytes = append(bytes, buf[:n]...)
 	}
-	err = json.Unmarshal(serializedMap, &s.inMemMap)
-	return err
+	return json.Unmarshal(bytes, &s.inMemMap)
 }
 
 func (s *KVStateMachine) Get(key string) string {

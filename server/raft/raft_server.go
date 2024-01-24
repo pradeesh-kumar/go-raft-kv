@@ -11,9 +11,10 @@ import (
 )
 
 type RaftServerImpl struct {
-	config   *RaftConfig
-	serverId ServerId
-	state    RaftState
+	config         *RaftConfig
+	configLogEntry *ConfigEntry
+	serverId       ServerId
+	state          RaftState
 
 	// Persistent state
 	currentTerm uint32   // Latest term server has seen
@@ -81,7 +82,7 @@ func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, s
 }
 
 func restoreSnapshot(snapshotManager SnapshotManager, stateMachine StateMachine) {
-	snapshot, err := snapshotManager.GetLatestSnapshot()
+	snapshotReader, err := snapshotManager.GetLatestSnapshot()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			logger.Info("no snapshots available in the system")
@@ -90,10 +91,16 @@ func restoreSnapshot(snapshotManager SnapshotManager, stateMachine StateMachine)
 		}
 		return
 	}
-	err = stateMachine.ResetFromSnapshot(snapshot)
+	defer snapshotReader.Close()
+	updateCurrentConfigLogEntry(snapshotReader)
+	err = stateMachine.ResetFromSnapshot(snapshotReader)
 	if err != nil {
 		logger.Fatal("failed to restore the statemachine with the latest snapshot", err)
 	}
+}
+
+func updateCurrentConfigLogEntry(snapshotReader SnapshotReader) {
+
 }
 
 func (r *RaftServerImpl) Start() {
@@ -285,10 +292,11 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 }
 
 func (r *RaftServerImpl) captureSnapshot(term uint32, index uint64) error {
-	snapshotWriter, err := r.snapshotManager.CreateWriter(term, index)
+	snapshotWriter, err := r.snapshotManager.CreateWriter(term, index, r.configLogEntry)
 	if err != nil {
 		return err
 	}
+	// TODO Read the last committed config entry and write it to the snapshot
 	err = r.stateMachine.CaptureSnapshot(snapshotWriter)
 	if err != nil {
 		logger.Error("failed to capture snapshot! ", err)
@@ -343,9 +351,9 @@ func (r *RaftServerImpl) processInstallSnapshotRequest(req *InstallSnapshotReque
 		r.currentTerm = req.Term
 	}
 	if r.currentSnapshotWriter == nil {
-		r.currentSnapshotWriter, _ = r.snapshotManager.CreateWriter(req.Term, req.LastLogIndex)
+		r.currentSnapshotWriter, _ = r.snapshotManager.CreateWriter(req.Term, req.LastLogIndex, r.configLogEntry)
 	}
-	err := r.currentSnapshotWriter.Write(req.Value)
+	_, err := r.currentSnapshotWriter.Write(req.Value)
 	if err != nil {
 		logger.Error("Error while writing the snapshot: ", err)
 	}
@@ -358,7 +366,7 @@ func (r *RaftServerImpl) processInstallSnapshotRequest(req *InstallSnapshotReque
 			logger.Error("Error while truncating the logs: ", err)
 		}
 		r.persistState()
-		snapshotReader, err := r.snapshotManager.GetSnapshot(req.Term, req.LastLogIndex)
+		snapshotReader, err := r.snapshotManager.GetLatestSnapshot()
 		if err != nil {
 			logger.Errorf("failed to read the snapshot for the term %d lastLogIndex %d: %s", req.Term, req.LastLogIndex, err)
 		}

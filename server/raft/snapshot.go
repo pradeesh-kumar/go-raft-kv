@@ -1,9 +1,11 @@
 package raft
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"github.com/pradeesh-kumar/go-raft-kv/logger"
+	"google.golang.org/protobuf/proto"
 	"io/fs"
 	"os"
 	"path"
@@ -11,47 +13,12 @@ import (
 	"time"
 )
 
+// .snapshot file format
+// First 64bit -> offset of the snapshot data.
+// The config entry starts after the first 64bit till the defined offset.
+// From the defined offset, snapshot data will be present till the end of the file.
+
 const snapshotExtension = ".snapshot"
-
-type SnapshotFileReader struct {
-	snapshotFile *os.File
-}
-
-func newSnapshotFileReader(snapshotFile *os.File) (SnapshotReader, error) {
-	return &SnapshotFileReader{snapshotFile}, nil
-}
-
-func (s *SnapshotFileReader) ReadAll() (data []byte, err error) {
-	data, err = os.ReadFile(s.snapshotFile.Name())
-	s.snapshotFile.Close()
-	return
-}
-
-func (s *SnapshotFileReader) close() {
-	s.snapshotFile.Close()
-}
-
-type SnapshotFileWriter struct {
-	snapshotFile *os.File
-}
-
-func newSnapshotFileWriter(snapshotFile *os.File) (SnapshotWriter, error) {
-	return &SnapshotFileWriter{snapshotFile}, nil
-}
-
-func (sw *SnapshotFileWriter) Write(data []byte) error {
-	_, err := sw.snapshotFile.Write(data)
-	return err
-}
-
-func (sw *SnapshotFileWriter) WriteAt(data []byte, offset int64) error {
-	_, err := sw.snapshotFile.WriteAt(data, offset)
-	return err
-}
-
-func (sw *SnapshotFileWriter) Close() {
-	sw.snapshotFile.Close()
-}
 
 type FileBasedSnapshotManager struct {
 	snapshotDir string
@@ -65,30 +32,79 @@ func newFileBasedSnapshotManager(snapshotDir string) SnapshotManager {
 	return &FileBasedSnapshotManager{snapshotDir: snapshotDir}
 }
 
-func (s *FileBasedSnapshotManager) CreateWriter(term uint32, logIndex uint64) (SnapshotWriter, error) {
+func (s *FileBasedSnapshotManager) CreateWriter(term uint32, logIndex uint64, configEntry *ConfigEntry) (SnapshotWriter, error) {
+	fileName := fmt.Sprintf("raft-snapshot_%d_%d%s", term, logIndex, snapshotExtension)
+	file, err := os.OpenFile(path.Join(s.snapshotDir, fileName), os.O_CREATE|os.O_WRONLY, 0666)
+	if errors.Is(err, os.ErrExist) {
+		return nil, fmt.Errorf("the snapshot file %s already exists", fileName)
+	}
+	b, err := proto.Marshal(configEntry)
+	if err != nil {
+		return nil, errors.New("failed to marshall the config entry to create the snapshot writer")
+	}
+	// Write the config offset to the snapshot
+	configOffset := uint64(8 + len(b))
+	offsetBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(offsetBytes, configOffset)
+	_, err = file.Write(offsetBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write the config offset %d to the snapshot file", configOffset)
+	}
+
+	// Write config entry to the snapshot
+	_, err = file.Write(b)
+	if err != nil {
+		return nil, errors.New("failed to write config entry to the snapshot file")
+	}
+	return file, nil
+}
+
+func (s *FileBasedSnapshotManager) GetSnapshot(term uint32, logIndex uint64) (*Snapshot, error) {
 	fileName := fmt.Sprintf("raft-snapshot_%d_%d%s", term, logIndex, snapshotExtension)
 	file, err := os.Open(path.Join(s.snapshotDir, fileName))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("the snapshot file %s doesn't exists", fileName)
 	}
-	return newSnapshotFileWriter(file)
+	return getSnapshotFromFile(file)
 }
 
-func (s *FileBasedSnapshotManager) GetSnapshot(term uint32, logIndex uint64) (SnapshotReader, error) {
-	fileName := fmt.Sprintf("raft-snapshot_%d_%d%s", term, logIndex, snapshotExtension)
-	file, err := os.Open(path.Join(s.snapshotDir, fileName))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("the snapshot file %s doesn't exists", fileName)
-	}
-	return newSnapshotFileReader(file)
-}
-
-func (s *FileBasedSnapshotManager) GetLatestSnapshot() (SnapshotReader, error) {
+func (s *FileBasedSnapshotManager) GetLatestSnapshot() (*Snapshot, error) {
 	file, err := getLatestFile(s.snapshotDir, ".snapshot")
 	if err != nil || file == nil {
 		return nil, os.ErrNotExist
 	}
-	return newSnapshotFileReader(file)
+	return getSnapshotFromFile(file)
+}
+
+func getSnapshotFromFile(file *os.File) (*Snapshot, error) {
+	snapshot := &Snapshot{}
+	// Read the 64bit offset where the config entry ends
+	b := make([]byte, 8)
+	n, err := file.Read(b)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the snapshot file: %s", err)
+	}
+	if n == 0 {
+		return nil, os.ErrNotExist
+	}
+	configEntryEndOffset := binary.LittleEndian.Uint64(b)
+
+	// Read config entry
+	b = make([]byte, configEntryEndOffset-8)
+	n, err = file.Read(b)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the snapshot file: %s", err)
+	}
+	if n < int(configEntryEndOffset) {
+		return nil, errors.New("snapshot doesn't contain the config entry")
+	}
+	snapshot.configEntry = &ConfigEntry{}
+	err = proto.Unmarshal(b, snapshot.configEntry)
+	if err != nil {
+		return nil, errors.New("config entry corrupted in the snapshot")
+	}
+	snapshot.SnapshotReader = file
+	return snapshot, nil
 }
 
 func getLatestFile(dirPath string, ext string) (*os.File, error) {
