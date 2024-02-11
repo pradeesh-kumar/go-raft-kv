@@ -2,6 +2,7 @@ package raft
 
 import (
 	"github.com/pradeesh-kumar/go-raft-kv/logger"
+	"io"
 	"time"
 )
 
@@ -169,7 +170,19 @@ func (r *DefaultReplicator) sendSnapshot(snapshotMetadata *SnapshotMetadataEntry
 	if err != nil {
 		logger.Error("Failed to retrieve the latest snapshot: ", err)
 	}
-	bytes, err := snapshot.ReadAll()
+	bytes := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := snapshot.snapshotReader.Read(buf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			logger.Errorf("failed to read the snapshot %s", err)
+			return
+		}
+		bytes = append(bytes, buf[:n]...)
+	}
 	if err != nil {
 		logger.Error("Failed to read the latest snapshot: ", err)
 	}

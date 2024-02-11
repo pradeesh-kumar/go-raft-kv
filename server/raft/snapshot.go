@@ -10,6 +10,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -103,8 +105,19 @@ func getSnapshotFromFile(file *os.File) (*Snapshot, error) {
 	if err != nil {
 		return nil, errors.New("config entry corrupted in the snapshot")
 	}
-	snapshot.SnapshotReader = file
+	snapshot.snapshotReader = file
+	snapshot.lastLogTerm, snapshot.lastLogIndex = parseTermAndIndex(file.Name())
 	return snapshot, nil
+}
+
+func parseTermAndIndex(fileName string) (term uint32, index uint64) {
+	fileName = fileName[strings.Index(fileName, "_")+1:]
+	converted, _ := strconv.ParseUint(fileName[:strings.Index(fileName, "_")], 10, 32)
+	term = uint32(converted)
+
+	fileName = fileName[strings.Index(fileName, "_")+1:]
+	index, _ = strconv.ParseUint(fileName[:strings.Index(fileName, ".")], 10, 64)
+	return
 }
 
 func getLatestFile(dirPath string, ext string) (*os.File, error) {

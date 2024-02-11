@@ -77,12 +77,12 @@ func NewRaftServer(cfg RaftConfig, raftLog RaftLog, stateStorage StateStorage, s
 		}
 		raftServer.lastLogTerm = record.Term
 	}
-	restoreSnapshot(raftServer.snapshotManager, raftServer.stateMachine)
+	raftServer.restoreStateMachine()
 	return raftServer
 }
 
-func restoreSnapshot(snapshotManager SnapshotManager, stateMachine StateMachine) {
-	snapshotReader, err := snapshotManager.GetLatestSnapshot()
+func (r *RaftServerImpl) restoreStateMachine() {
+	snapshot, err := r.snapshotManager.GetLatestSnapshot()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			logger.Info("no snapshots available in the system")
@@ -91,16 +91,34 @@ func restoreSnapshot(snapshotManager SnapshotManager, stateMachine StateMachine)
 		}
 		return
 	}
-	defer snapshotReader.Close()
-	updateCurrentConfigLogEntry(snapshotReader)
-	err = stateMachine.ResetFromSnapshot(snapshotReader)
+	defer snapshot.snapshotReader.Close()
+	r.updateLatestConfig(snapshot.configEntry)
+	err = r.stateMachine.ResetFromSnapshot(snapshot.snapshotReader)
 	if err != nil {
 		logger.Fatal("failed to restore the statemachine with the latest snapshot", err)
 	}
-}
-
-func updateCurrentConfigLogEntry(snapshotReader SnapshotReader) {
-
+	if snapshot.lastLogIndex < r.lastAppliedIndex {
+		logs, err := r.raftLog.ReadAllSince(snapshot.lastLogIndex + 1)
+		if err != nil {
+			logger.Error("Error reading the logs upon startup ", err)
+			return
+		}
+		var stateMachineEntries []*StateMachineEntry
+		var configEntry *ConfigEntry = nil
+		for _, log := range logs {
+			switch entry := log.LogEntryBody.(type) {
+			case *Record_ConfigEntry:
+				configEntry = entry.ConfigEntry
+			case *Record_StateMachineEntry:
+				stateMachineEntries = append(stateMachineEntries, entry.StateMachineEntry)
+			}
+		}
+		r.stateMachine.Apply(stateMachineEntries)
+		if configEntry != nil {
+			r.updateLatestConfig(configEntry)
+		}
+		r.persistState()
+	}
 }
 
 func (r *RaftServerImpl) Start() {
@@ -265,7 +283,7 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 		case *Record_SnapshotMetadataEntry:
 			r.stateMachine.Apply(stateMachineEntries)
 			stateMachineEntries = make([]*StateMachineEntry, 0)
-			err := r.captureSnapshot(entry.SnapshotMetadataEntry.CommitLogTerm, entry.SnapshotMetadataEntry.CommitIndex)
+			err := r.captureSnapshot(entry.SnapshotMetadataEntry)
 			if err != nil {
 				logger.Error("failed to take snapshot ", err)
 				r.lastAppliedIndex = log.Offset - 1
@@ -291,8 +309,8 @@ func (r *RaftServerImpl) applyLogs() (logs []*Record, err error) {
 	return
 }
 
-func (r *RaftServerImpl) captureSnapshot(term uint32, index uint64) error {
-	snapshotWriter, err := r.snapshotManager.CreateWriter(term, index, r.configLogEntry)
+func (r *RaftServerImpl) captureSnapshot(snapshotMetadata *SnapshotMetadataEntry) error {
+	snapshotWriter, err := r.snapshotManager.CreateWriter(snapshotMetadata.CommitLogTerm, snapshotMetadata.LastConfigIndex, r.configLogEntry)
 	if err != nil {
 		return err
 	}
@@ -366,11 +384,11 @@ func (r *RaftServerImpl) processInstallSnapshotRequest(req *InstallSnapshotReque
 			logger.Error("Error while truncating the logs: ", err)
 		}
 		r.persistState()
-		snapshotReader, err := r.snapshotManager.GetLatestSnapshot()
+		snapshot, err := r.snapshotManager.GetLatestSnapshot()
 		if err != nil {
 			logger.Errorf("failed to read the snapshot for the term %d lastLogIndex %d: %s", req.Term, req.LastLogIndex, err)
 		}
-		err = r.stateMachine.ResetFromSnapshot(snapshotReader)
+		err = r.stateMachine.ResetFromSnapshot(snapshot.snapshotReader)
 		if err != nil {
 			logger.Error("failed to reset the statemachine", err)
 		}

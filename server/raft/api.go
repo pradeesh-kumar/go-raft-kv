@@ -30,8 +30,10 @@ type SnapshotManager interface {
 }
 
 type Snapshot struct {
-	configEntry *ConfigEntry
-	SnapshotReader
+	lastLogTerm    uint32
+	lastLogIndex   uint64
+	configEntry    *ConfigEntry
+	snapshotReader SnapshotReader
 }
 
 type SnapshotWriter interface {
