@@ -1,6 +1,6 @@
 # Go-Raft-KV
 
-The project go-raft-kv is a Distributed In-Memory Key-Value store implemented using Raft consensus algorithm
+The project go-raft-kv is a Distributed In-Memory Key-Value store implemented using Raft consensus algorithm.
 
 # Features
 
@@ -9,7 +9,7 @@ The project go-raft-kv is a Distributed In-Memory Key-Value store implemented us
 * Leadership Transfer
 * Snapshot
 * Dynamic Membership & Configuration Change
-* Client
+* Raft Client
 
 # Build Protobuf
 
